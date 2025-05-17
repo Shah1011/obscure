@@ -6,6 +6,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/shah1011/obscure/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -20,7 +21,15 @@ Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("backup called")
+		password, err := utils.PromptPassword("🔐 Enter password for encryption: ")
+		if err != nil {
+			fmt.Println("❌ Failed to read password:", err)
+			return
+		}
+		_ = password // Use password to silence unused variable warning
+
+		fmt.Println("✅ Password securely received.")
+		// Store/use this password for encryption later
 	},
 }
 
