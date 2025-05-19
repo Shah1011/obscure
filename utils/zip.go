@@ -8,42 +8,6 @@ import (
 	"path/filepath"
 )
 
-type ProgressReader struct {
-	Reader       io.Reader
-	Total        int64
-	ReadBytes    int64
-	LastReported int64
-}
-
-func NewProgressReader(r io.Reader, total int64) *ProgressReader {
-	return &ProgressReader{
-		Reader: r,
-		Total:  total,
-	}
-}
-
-func (pr *ProgressReader) Read(p []byte) (int, error) {
-	n, err := pr.Reader.Read(p)
-	pr.ReadBytes += int64(n)
-
-	if pr.Total > 0 {
-		progress := pr.ReadBytes * 100 / pr.Total
-		if progress > 100 {
-			progress = 100
-		}
-
-		currentBucket := (progress / 10) * 10
-
-		if currentBucket > pr.LastReported {
-			pr.LastReported = currentBucket
-			// Pass progress (0-100) to your DrawProgressBar
-			DrawProgressBar(progress, 100, 30) // or however your function signature looks
-		}
-	}
-
-	return n, err
-}
-
 func ZipDirectory(sourceDir string, targetZip string) error {
 	zipFile, err := os.Create(targetZip)
 	if err != nil {
@@ -120,7 +84,7 @@ func ZipDirectory(sourceDir string, targetZip string) error {
 				return err
 			}
 
-			progressReader := NewProgressReader(file, fileInfo.Size())
+			progressReader := NewProgressReader(file, fileInfo.Size(), 30, "Compressing... ")
 			_, err = io.Copy(writer, progressReader)
 			if err != nil {
 				return err

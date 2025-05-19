@@ -1,32 +1,54 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-*/
 package cmd
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/shah1011/obscure/utils"
 	"github.com/spf13/cobra"
 )
 
-// restoreCmd represents the restore command
+var restoreTag string
+var restoreVersion string
+
 var restoreCmd = &cobra.Command{
 	Use:   "restore",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Restore an encrypted backup from S3",
 	Run: func(cmd *cobra.Command, args []string) {
-		tag, _ := cmd.Flags().GetString("tag")
-		version, _ := cmd.Flags().GetString("version")
-		encryptedFile := fmt.Sprintf("%s_v%s.obscure", tag, version)
-		decryptedZip := fmt.Sprintf("%s_v%s.zip", tag, version)
-		restoredDir := fmt.Sprintf("%s_v%s_restored", tag, version)
+		// 📦 Construct expected filenames
+		encryptedFile := fmt.Sprintf("%s_v%s.obscure", restoreTag, restoreVersion)
+		outputZip := fmt.Sprintf("%s_v%s.zip", restoreTag, restoreVersion)
+		outputDir := fmt.Sprintf("restored_%s_v%s", restoreTag, restoreVersion)
 
+		// 🧠 Fetch user ID
+		cfg, err := config.LoadDefaultConfig(context.TODO())
+		if err != nil {
+			fmt.Println("❌ Failed to load AWS config:", err)
+			return
+		}
+		stsClient := sts.NewFromConfig(cfg)
+		identity, err := stsClient.GetCallerIdentity(context.TODO(), &sts.GetCallerIdentityInput{})
+		if err != nil {
+			fmt.Println("❌ Failed to get AWS user identity:", err)
+			return
+		}
+		userID := *identity.UserId
+
+		// 🧬 Construct S3 key using tag and userID
+		s3Key := fmt.Sprintf("backups/%s/%s.obscure", userID, restoreTag)
+
+		// ☁️ Download encrypted backup
+		fmt.Println("🔽 Downloading encrypted backup from S3...")
+		err = utils.DownloadFromS3(bucketName, s3Key, encryptedFile) // using globally declared bucketName
+		if err != nil {
+			fmt.Println("❌ Failed to download backup:", err)
+			return
+		}
+		fmt.Println("✅ Backup downloaded:", encryptedFile)
+
+		// 🔐 Prompt for decryption password
 		fmt.Println("🔐 Prompting for password...")
 		password, err := utils.PromptPassword("🔐 Enter password for decryption: ")
 		if err != nil {
@@ -35,53 +57,45 @@ to quickly create a Cobra application.`,
 		}
 		fmt.Println("✅ Password securely received.")
 
-		fmt.Println("🔽 Downloading encrypted backup from S3...")
-		err = utils.DownloadFromS3("your-bucket-name", encryptedFile, encryptedFile)
-		if err != nil {
-			fmt.Println("❌ Failed to download backup:", err)
-			return
-		}
-		fmt.Println("✅ Backup downloaded:", encryptedFile)
-
-		fmt.Println("🔹 Reading salt from encrypted file...")
+		// 🧂 Extract salt from encrypted file
 		salt, err := utils.ExtractSaltFromEncryptedFile(encryptedFile)
 		if err != nil {
 			fmt.Println("❌ Failed to extract salt:", err)
 			return
 		}
-		fmt.Println("✅ Salt extracted.")
 
-		fmt.Println("🔹 Deriving encryption key...")
+		// 🔑 Derive key
 		key, err := utils.DeriveKey(password, salt)
 		if err != nil {
 			fmt.Println("❌ Key derivation failed:", err)
 			return
 		}
-		fmt.Println("✅ Key derived.")
 
-		fmt.Println("🔓 Decrypting backup file...")
-		err = utils.DecryptFile(encryptedFile, decryptedZip, key)
+		// 🔓 Decrypt file
+		fmt.Println("🔓 Decrypting backup...")
+		err = utils.DecryptFile(encryptedFile, outputZip, key)
 		if err != nil {
 			fmt.Println("❌ Failed to decrypt file:", err)
 			return
 		}
-		fmt.Println("✅ Backup decrypted:", decryptedZip)
+		fmt.Println("✅ Decrypted to:", outputZip)
 
-		fmt.Println("📦 Unzipping backup...")
-		err = utils.UnzipFile(decryptedZip, restoredDir)
+		// 🗃️ Unzip
+		fmt.Println("📂 Unzipping backup...")
+		err = utils.UnzipFile(outputZip, outputDir)
 		if err != nil {
-			fmt.Println("❌ Failed to unzip backup:", err)
+			fmt.Println("❌ Failed to unzip:", err)
 			return
 		}
-		fmt.Println("✅ Backup restored to directory:", restoredDir)
+		fmt.Println("✅ Backup restored to:", outputDir)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(restoreCmd)
 
-	restoreCmd.Flags().StringVarP(&tag, "tag", "t", "", "Tage for restore")
-	restoreCmd.Flags().StringVarP(&version, "version", "v", "", "Version to restore")
+	restoreCmd.Flags().StringVarP(&restoreTag, "tag", "t", "", "Tag of the backup to restore")
+	restoreCmd.Flags().StringVarP(&restoreVersion, "version", "v", "", "Version of the backup to restore")
 	restoreCmd.MarkFlagRequired("tag")
 	restoreCmd.MarkFlagRequired("version")
 }

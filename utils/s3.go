@@ -9,16 +9,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 func UploadToS3(keyName, filePath string) error {
-	bucketName := os.Getenv("OBSCURE_BUCKET_NAME")
-	awsRegion := os.Getenv("AWS_REGION")
-
-	if bucketName == "" || awsRegion == "" {
-		return fmt.Errorf("environment variables OBSCURE_BUCKET_NAME and AWS_REGION must be set")
-	}
+	bucketName := "obscure-open"
+	awsRegion := "us-east-1"
 
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
 		config.WithRegion(awsRegion),
@@ -35,15 +30,23 @@ func UploadToS3(keyName, filePath string) error {
 	}
 	defer file.Close()
 
+	stat, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat file: %w", err)
+	}
+	fileSize := stat.Size()
+
+	progressReader := NewProgressReader(file, fileSize, 30, "Uploading...")
+
 	_, err = client.PutObject(context.TODO(), &s3.PutObjectInput{
-		Bucket:      aws.String(bucketName),
-		Key:         aws.String(keyName),
-		Body:        file,
-		ACL:         types.ObjectCannedACLPrivate,
-		ContentType: aws.String("application/octet-stream"),
+		Bucket:        aws.String(bucketName),
+		Key:           aws.String(keyName),
+		Body:          progressReader,
+		ContentType:   aws.String("application/octet-stream"),
+		ContentLength: aws.Int64(fileSize),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to upload object: %w", err)
+		return fmt.Errorf("upload failed: %w", err)
 	}
 
 	fmt.Printf("✅ Successfully uploaded to S3:\n🔗 https://%s.s3.%s.amazonaws.com/%s\n", bucketName, awsRegion, keyName)
