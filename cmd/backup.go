@@ -66,7 +66,7 @@ to quickly create a Cobra application.`,
 		fmt.Println("✅ Backup created and encrypted:", encryptedFile)
 
 		fmt.Println("🔹 Uploading backup to S3...")
-		err = utils.UploadToS3("your-bucket-name", encryptedFile, encryptedFile)
+		err = utils.UploadToS3("Backup", encryptedFile)
 		if err != nil {
 			fmt.Println("❌ Upload failed:", err)
 			return
