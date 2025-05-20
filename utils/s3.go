@@ -4,77 +4,62 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-func UploadToS3(keyName, filePath string) error {
-	bucketName := "obscure-open"
+func UploadToS3(data io.ReadSeeker, bucketName string, s3Key string) error {
 	awsRegion := "us-east-1"
 
-	cfg, err := config.LoadDefaultConfig(context.TODO(),
-		config.WithRegion(awsRegion),
-	)
+	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
 	if err != nil {
 		return fmt.Errorf("unable to load SDK config: %w", err)
 	}
 
 	client := s3.NewFromConfig(cfg)
 
-	file, err := os.Open(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to open file %q: %w", filePath, err)
-	}
-	defer file.Close()
-
-	stat, err := file.Stat()
-	if err != nil {
-		return fmt.Errorf("failed to stat file: %w", err)
-	}
-	fileSize := stat.Size()
-
-	progressReader := NewProgressReader(file, fileSize, 30, "Uploading...")
-
 	_, err = client.PutObject(context.TODO(), &s3.PutObjectInput{
 		Bucket:        aws.String(bucketName),
-		Key:           aws.String(keyName),
-		Body:          progressReader,
+		Key:           aws.String(s3Key),
+		Body:          data,
 		ContentType:   aws.String("application/octet-stream"),
-		ContentLength: aws.Int64(fileSize),
+		ContentLength: aws.Int64(getReaderLength(data)),
 	})
 	if err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
 
-	fmt.Printf("✅ Successfully uploaded to S3:\n🔗 https://%s.s3.%s.amazonaws.com/%s\n", bucketName, awsRegion, keyName)
+	fmt.Printf("✅ Uploaded to: https://%s.s3.%s.amazonaws.com/%s\n", bucketName, awsRegion, s3Key)
 	return nil
 }
 
-func DownloadFromS3(bucketName, keyName, filePath string) error {
+func getReaderLength(r io.ReadSeeker) int64 {
+	size, _ := r.Seek(0, io.SeekEnd)
+	r.Seek(0, io.SeekStart)
+	return size
+}
+
+func DownloadFromS3(bucket, key string, writer io.Writer) error {
+	// Load AWS config
 	cfg, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
 		return err
 	}
 
 	client := s3.NewFromConfig(cfg)
-	output, err := client.GetObject(context.TODO(), &s3.GetObjectInput{
-		Bucket: &bucketName,
-		Key:    &keyName,
+
+	resp, err := client.GetObject(context.TODO(), &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
 	})
 	if err != nil {
 		return err
 	}
-	defer output.Body.Close()
+	defer resp.Body.Close()
 
-	outFile, err := os.Create(filePath)
-	if err != nil {
-		return err
-	}
-	defer outFile.Close()
-
-	_, err = io.Copy(outFile, output.Body)
+	// Copy with progress
+	_, err = io.Copy(writer, resp.Body)
 	return err
 }

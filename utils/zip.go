@@ -2,104 +2,56 @@ package utils
 
 import (
 	"archive/zip"
-	"fmt"
+	"bytes"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
 
-func ZipDirectory(sourceDir string, targetZip string) error {
-	zipFile, err := os.Create(targetZip)
-	if err != nil {
-		return err
-	}
-	defer zipFile.Close()
+func ZipDirectoryToBuffer(srcDir string) (*bytes.Buffer, error) {
+	buf := new(bytes.Buffer)
+	zipWriter := zip.NewWriter(buf)
 
-	archive := zip.NewWriter(zipFile)
-	defer archive.Close()
-
-	fmt.Println("🔹 Starting to zip directory:", sourceDir)
-
-	// Get absolute path of the zip file to exclude it
-	absTargetZip, err := filepath.Abs(targetZip)
-	if err != nil {
-		return fmt.Errorf("failed to get absolute path of target zip: %v", err)
-	}
-
-	err = filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(srcDir, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// Skip the zip file itself
-		absCurrentPath, err := filepath.Abs(path)
-		if err != nil {
-			return err
-		}
-		if absCurrentPath == absTargetZip {
-			return nil // ❌ skip the zip file
-		}
-
-		relPath, err := filepath.Rel(sourceDir, path)
-		if err != nil {
-			return err
-		}
-
-		if relPath == "." {
+		if info.IsDir() {
 			return nil
 		}
 
-		if info.IsDir() {
-			fmt.Printf("📁 Adding directory: %s/\n", relPath)
-		} else {
-			fmt.Printf("📄 Adding file: %s\n", relPath)
-		}
-
-		header, err := zip.FileInfoHeader(info)
+		relPath, err := filepath.Rel(srcDir, path)
 		if err != nil {
 			return err
 		}
 
-		header.Name = relPath
-		if info.IsDir() {
-			header.Name += "/"
-		} else {
-			header.Method = zip.Deflate
-		}
-
-		writer, err := archive.CreateHeader(header)
+		fileInZip, err := zipWriter.Create(relPath)
 		if err != nil {
 			return err
 		}
 
-		if !info.IsDir() {
-			file, err := os.Open(path)
-			if err != nil {
-				return err
-			}
-			defer file.Close()
-
-			fileInfo, err := file.Stat()
-			if err != nil {
-				return err
-			}
-
-			progressReader := NewProgressReader(file, fileInfo.Size(), 30, "Compressing... ")
-			_, err = io.Copy(writer, progressReader)
-			if err != nil {
-				return err
-			}
+		fileOnDisk, err := os.Open(path)
+		if err != nil {
+			return err
 		}
+		defer fileOnDisk.Close()
 
-		return nil
+		_, err = io.Copy(fileInZip, fileOnDisk)
+		return err
 	})
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	fmt.Println("✅ Zipping complete")
-	return nil
+	err = zipWriter.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	return buf, nil
 }
 
 func UnzipFile(zipPath, destDir string) error {

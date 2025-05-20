@@ -1,11 +1,9 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
+	"os"
 
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/shah1011/obscure/utils"
 	"github.com/spf13/cobra"
 )
@@ -23,25 +21,28 @@ var restoreCmd = &cobra.Command{
 		outputDir := fmt.Sprintf("restored_%s_v%s", restoreTag, restoreVersion)
 
 		// 🧠 Fetch user ID
-		cfg, err := config.LoadDefaultConfig(context.TODO())
+		userID, err := utils.GetUserID()
 		if err != nil {
-			fmt.Println("❌ Failed to load AWS config:", err)
+			fmt.Println("❌ Failed to get AWS user ID:", err)
 			return
 		}
-		stsClient := sts.NewFromConfig(cfg)
-		identity, err := stsClient.GetCallerIdentity(context.TODO(), &sts.GetCallerIdentityInput{})
-		if err != nil {
-			fmt.Println("❌ Failed to get AWS user identity:", err)
-			return
-		}
-		userID := *identity.UserId
 
 		// 🧬 Construct S3 key using tag and userID
-		s3Key := fmt.Sprintf("backups/%s/%s.obscure", userID, restoreTag)
+		s3Key := fmt.Sprintf("backups/%s/%s_v%s.obscure", userID, restoreTag, restoreVersion)
 
 		// ☁️ Download encrypted backup
 		fmt.Println("🔽 Downloading encrypted backup from S3...")
-		err = utils.DownloadFromS3(bucketName, s3Key, encryptedFile) // using globally declared bucketName
+
+		file, err := os.Create(encryptedFile)
+		if err != nil {
+			fmt.Println("❌ Failed to create file:", err)
+			return
+		}
+		defer file.Close()
+
+		progressWriter := utils.NewProgressWriter(file, "Downloading...", 40, -1)
+
+		err = utils.DownloadFromS3(bucketName, s3Key, progressWriter)
 		if err != nil {
 			fmt.Println("❌ Failed to download backup:", err)
 			return
@@ -57,23 +58,23 @@ var restoreCmd = &cobra.Command{
 		}
 		fmt.Println("✅ Password securely received.")
 
-		// 🧂 Extract salt from encrypted file
-		salt, err := utils.ExtractSaltFromEncryptedFile(encryptedFile)
-		if err != nil {
-			fmt.Println("❌ Failed to extract salt:", err)
-			return
-		}
+		// // 🧂 Extract salt from encrypted file
+		// salt, err := utils.ExtractSaltFromEncryptedFile(encryptedFile)
+		// if err != nil {
+		// 	fmt.Println("❌ Failed to extract salt:", err)
+		// 	return
+		// }
 
-		// 🔑 Derive key
-		key, err := utils.DeriveKey(password, salt)
-		if err != nil {
-			fmt.Println("❌ Key derivation failed:", err)
-			return
-		}
+		// // 🔑 Derive key
+		// key, err := utils.DeriveKey(password, salt)
+		// if err != nil {
+		// 	fmt.Println("❌ Key derivation failed:", err)
+		// 	return
+		// }
 
 		// 🔓 Decrypt file
 		fmt.Println("🔓 Decrypting backup...")
-		err = utils.DecryptFile(encryptedFile, outputZip, key)
+		err = utils.DecryptFile(encryptedFile, outputZip, password)
 		if err != nil {
 			fmt.Println("❌ Failed to decrypt file:", err)
 			return

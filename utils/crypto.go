@@ -48,17 +48,23 @@ func ExtractSaltFromEncryptedFile(filepath string) ([]byte, error) {
 	return salt, nil
 }
 
-func DecryptFile(inputPath, outputPath string, key []byte) error {
+func DecryptFile(inputPath, outputPath string, password string) error {
 	inFile, err := os.Open(inputPath)
 	if err != nil {
 		return fmt.Errorf("failed to open encrypted file: %w", err)
 	}
 	defer inFile.Close()
 
-	// Read salt (16 bytes) — already used for key derivation externally
+	// Read salt (16 bytes)
 	salt := make([]byte, 16)
 	if _, err := io.ReadFull(inFile, salt); err != nil {
 		return fmt.Errorf("failed to read salt: %w", err)
+	}
+
+	// Derive key from password + salt
+	key, err := DeriveKey(password, salt)
+	if err != nil {
+		return fmt.Errorf("failed to derive key: %w", err)
 	}
 
 	// Read nonce (12 bytes for GCM)
@@ -67,13 +73,12 @@ func DecryptFile(inputPath, outputPath string, key []byte) error {
 		return fmt.Errorf("failed to read nonce: %w", err)
 	}
 
-	// Read the rest (ciphertext + tag)
+	// Read the ciphertext
 	ciphertext, err := io.ReadAll(inFile)
 	if err != nil {
 		return fmt.Errorf("failed to read ciphertext: %w", err)
 	}
 
-	// Prepare AES-GCM cipher
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return fmt.Errorf("failed to create AES cipher: %w", err)
@@ -84,13 +89,11 @@ func DecryptFile(inputPath, outputPath string, key []byte) error {
 		return fmt.Errorf("failed to create GCM: %w", err)
 	}
 
-	// Decrypt
 	plaintext, err := aesgcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
 		return fmt.Errorf("decryption failed: %w", err)
 	}
 
-	// Write decrypted data to .zip
 	outFile, err := os.Create(outputPath)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
