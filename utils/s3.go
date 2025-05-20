@@ -10,8 +10,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
+const awsRegion = "us-east-1"
+
 func UploadToS3(data io.ReadSeeker, bucketName string, s3Key string) error {
-	awsRegion := "us-east-1"
 
 	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
 	if err != nil {
@@ -41,25 +42,23 @@ func getReaderLength(r io.ReadSeeker) int64 {
 	return size
 }
 
-func DownloadFromS3(bucket, key string, writer io.Writer) error {
-	// Load AWS config
-	cfg, err := config.LoadDefaultConfig(context.TODO())
-	if err != nil {
-		return err
-	}
+func GetS3Client() *s3.Client {
+	cfg, _ := config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
+	return s3.NewFromConfig(cfg)
+}
 
-	client := s3.NewFromConfig(cfg)
+func DownloadFromS3Stream(bucket, key string) (io.ReadCloser, error) {
+	client := GetS3Client()
 
-	resp, err := client.GetObject(context.TODO(), &s3.GetObjectInput{
+	input := &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
-	})
-	if err != nil {
-		return err
 	}
-	defer resp.Body.Close()
 
-	// Copy with progress
-	_, err = io.Copy(writer, resp.Body)
-	return err
+	resp, err := client.GetObject(context.TODO(), input)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get S3 object: %w", err)
+	}
+
+	return resp.Body, nil // stream — remember to defer Close()
 }

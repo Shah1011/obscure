@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"os"
+	"strings"
 
 	"github.com/shah1011/obscure/utils"
 	"github.com/spf13/cobra"
@@ -15,80 +15,58 @@ var restoreCmd = &cobra.Command{
 	Use:   "restore",
 	Short: "Restore an encrypted backup from S3",
 	Run: func(cmd *cobra.Command, args []string) {
-		// 📦 Construct expected filenames
-		encryptedFile := fmt.Sprintf("%s_v%s.obscure", restoreTag, restoreVersion)
-		outputZip := fmt.Sprintf("%s_v%s.zip", restoreTag, restoreVersion)
-		outputDir := fmt.Sprintf("restored_%s_v%s", restoreTag, restoreVersion)
-
-		// 🧠 Fetch user ID
+		// ☁️ Get AWS user ID
 		userID, err := utils.GetUserID()
 		if err != nil {
 			fmt.Println("❌ Failed to get AWS user ID:", err)
 			return
 		}
 
-		// 🧬 Construct S3 key using tag and userID
+		// 🧬 Construct S3 key
 		s3Key := fmt.Sprintf("backups/%s/%s_v%s.obscure", userID, restoreTag, restoreVersion)
+		outputDir := fmt.Sprintf("restored_%s_v%s", restoreTag, restoreVersion)
 
-		// ☁️ Download encrypted backup
-		fmt.Println("🔽 Downloading encrypted backup from S3...")
-
-		file, err := os.Create(encryptedFile)
-		if err != nil {
-			fmt.Println("❌ Failed to create file:", err)
+		// 🔐 Prompt for decryption password
+		password, err := utils.PromptPassword("🔐 Enter decryption password:")
+		if err != nil || strings.TrimSpace(password) == "" {
+			fmt.Println("❌ Invalid or empty password.")
 			return
 		}
-		defer file.Close()
 
-		progressWriter := utils.NewProgressWriter(file, "Downloading...", 40, -1)
+		// 📦 Get object size for progress bar
+		size, err := utils.GetObjectSize(bucketName, s3Key)
+		if err != nil {
+			fmt.Println("❌ Could not get backup size:", err)
+			return
+		}
 
-		err = utils.DownloadFromS3(bucketName, s3Key, progressWriter)
+		// 📥 Stream download with progress
+		fmt.Println("🔽 Downloading encrypted backup from S3...")
+		rawReader, err := utils.DownloadFromS3Stream(bucketName, s3Key)
 		if err != nil {
 			fmt.Println("❌ Failed to download backup:", err)
 			return
 		}
-		fmt.Println("✅ Backup downloaded:", encryptedFile)
+		defer rawReader.Close()
 
-		// 🔐 Prompt for decryption password
-		fmt.Println("🔐 Prompting for password...")
-		password, err := utils.PromptPassword("🔐 Enter password for decryption: ")
+		progressReader := utils.NewProgressReader(rawReader, "Downloading", 40, size)
+
+		// 🔓 Decrypt stream
+		decStream, err := utils.DecryptStream(progressReader, password)
 		if err != nil {
-			fmt.Println("❌ Failed to read password:", err)
+			fmt.Println("❌ Decryption failed:", err)
 			return
 		}
-		fmt.Println("✅ Password securely received.")
 
-		// // 🧂 Extract salt from encrypted file
-		// salt, err := utils.ExtractSaltFromEncryptedFile(encryptedFile)
-		// if err != nil {
-		// 	fmt.Println("❌ Failed to extract salt:", err)
-		// 	return
-		// }
-
-		// // 🔑 Derive key
-		// key, err := utils.DeriveKey(password, salt)
-		// if err != nil {
-		// 	fmt.Println("❌ Key derivation failed:", err)
-		// 	return
-		// }
-
-		// 🔓 Decrypt file
-		fmt.Println("🔓 Decrypting backup...")
-		err = utils.DecryptFile(encryptedFile, outputZip, password)
-		if err != nil {
-			fmt.Println("❌ Failed to decrypt file:", err)
-			return
-		}
-		fmt.Println("✅ Decrypted to:", outputZip)
-
-		// 🗃️ Unzip
-		fmt.Println("📂 Unzipping backup...")
-		err = utils.UnzipFile(outputZip, outputDir)
+		// 📂 Unzip stream directly to restore folder
+		fmt.Println("📂 Restoring files...")
+		err = utils.UnzipFromStream(decStream, outputDir)
 		if err != nil {
 			fmt.Println("❌ Failed to unzip:", err)
 			return
 		}
-		fmt.Println("✅ Backup restored to:", outputDir)
+
+		fmt.Println("✅ Restore complete at:", outputDir)
 	},
 }
 

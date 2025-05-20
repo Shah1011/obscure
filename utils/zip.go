@@ -3,10 +3,12 @@ package utils
 import (
 	"archive/zip"
 	"bytes"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func ZipDirectoryToBuffer(srcDir string) (*bytes.Buffer, error) {
@@ -54,40 +56,68 @@ func ZipDirectoryToBuffer(srcDir string) (*bytes.Buffer, error) {
 	return buf, nil
 }
 
-func UnzipFile(zipPath, destDir string) error {
-	r, err := zip.OpenReader(zipPath)
+// UnzipFromStream extracts files from a ZIP archive stream into a target directory.
+func UnzipFromStream(zipReader io.Reader, outputDir string) error {
+	// Read all data into memory (as zip.NewReader requires a Seeker)
+	data, err := io.ReadAll(zipReader)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read zip stream: %w", err)
 	}
-	defer r.Close()
 
-	for _, f := range r.File {
-		fPath := filepath.Join(destDir, f.Name)
+	// Create a zip.Reader from the in-memory byte slice
+	zipReaderAt := bytes.NewReader(data)
+	zipReaderObj, err := zip.NewReader(zipReaderAt, int64(len(data)))
+	if err != nil {
+		return fmt.Errorf("failed to create zip reader: %w", err)
+	}
+
+	// Ensure output directory exists
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// Iterate over files in the ZIP archive
+	for _, f := range zipReaderObj.File {
+		filePath := filepath.Join(outputDir, f.Name)
+
+		// Ensure the path is within the outputDir (prevent ZipSlip)
+		if !strings.HasPrefix(filepath.Clean(filePath), filepath.Clean(outputDir)+string(os.PathSeparator)) {
+			return fmt.Errorf("illegal file path: %s", filePath)
+		}
+
+		// Handle directories
 		if f.FileInfo().IsDir() {
-			os.MkdirAll(fPath, os.ModePerm)
+			if err := os.MkdirAll(filePath, f.Mode()); err != nil {
+				return fmt.Errorf("failed to create directory %s: %w", filePath, err)
+			}
 			continue
 		}
 
-		if err := os.MkdirAll(filepath.Dir(fPath), os.ModePerm); err != nil {
-			return err
+		// Create parent directories if necessary
+		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+			return fmt.Errorf("failed to create parent directories: %w", err)
 		}
 
-		outFile, err := os.OpenFile(fPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		// Open file in the archive
+		srcFile, err := f.Open()
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to open file %s: %w", f.Name, err)
 		}
-		rc, err := f.Open()
-		if err != nil {
-			outFile.Close()
-			return err
-		}
-		_, err = io.Copy(outFile, rc)
+		defer srcFile.Close()
 
-		outFile.Close()
-		rc.Close()
+		// Create destination file
+		destFile, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to create file %s: %w", filePath, err)
 		}
+
+		// Copy file contents
+		if _, err := io.Copy(destFile, srcFile); err != nil {
+			destFile.Close()
+			return fmt.Errorf("failed to write file %s: %w", filePath, err)
+		}
+		destFile.Close()
 	}
+
 	return nil
 }
