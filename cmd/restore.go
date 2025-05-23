@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/shah1011/obscure/internal/config"
 	"github.com/shah1011/obscure/utils"
 	"github.com/spf13/cobra"
 )
@@ -16,10 +17,18 @@ var restoreCmd = &cobra.Command{
 	Short: "Restore an encrypted backup from S3",
 	Run: func(cmd *cobra.Command, args []string) {
 		// ☁️ Get AWS user ID
-		userID, err := utils.GetUserID()
-		if err != nil {
-			fmt.Println("❌ Failed to get AWS user ID:", err)
-			return
+		userFlag, _ := cmd.Flags().GetString("user")
+		var userID string
+		var err error
+
+		if userFlag != "" {
+			userID = userFlag
+		} else {
+			userID, err = config.GetSessionEmail()
+			if err != nil || userID == "" {
+				fmt.Println("❌ You are not logged in. Use --user or run `obscure login`")
+				return
+			}
 		}
 
 		// 🧬 Construct S3 key
@@ -75,6 +84,7 @@ func init() {
 
 	restoreCmd.Flags().StringVarP(&restoreTag, "tag", "t", "", "Tag of the backup to restore")
 	restoreCmd.Flags().StringVarP(&restoreVersion, "version", "v", "", "Version of the backup to restore")
+	restoreCmd.Flags().String("user", "", "Email to identify backup owner (optional if logged in)")
 	restoreCmd.MarkFlagRequired("tag")
 	restoreCmd.MarkFlagRequired("version")
 }

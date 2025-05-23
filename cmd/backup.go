@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/shah1011/obscure/internal/auth"
+	"github.com/shah1011/obscure/internal/config"
 	"github.com/shah1011/obscure/utils"
 	"github.com/spf13/cobra"
 )
@@ -18,6 +20,21 @@ var backupCmd = &cobra.Command{
 	Short: "Back up and encrypt a directory, then upload to S3",
 	Run: func(cmd *cobra.Command, args []string) {
 		inputDir := args[0]
+
+		// 🧠 Get AWS user identity
+		userFlag, _ := cmd.Flags().GetString("user")
+		var userID string
+
+		if userFlag != "" {
+			userID = userFlag
+		} else {
+			var err error
+			userID, err = config.GetSessionEmail()
+			if err != nil || userID == "" {
+				fmt.Println("❌ You are not logged in. Use --user or run `obscure login`")
+				return
+			}
+		}
 
 		// 🔐 Prompt for password
 		password, err := utils.PromptPassword("🔐 Enter password for encryption: ")
@@ -38,7 +55,6 @@ var backupCmd = &cobra.Command{
 
 		// 🗜️ Zip directory to buffer
 		fmt.Println("🔹 Zipping directory:", inputDir)
-		// progressReader := utils.NewProgressBuffer([]byte{}, "Encrypting...", 40)
 		zipBuffer, err := utils.ZipDirectoryToBuffer(inputDir)
 		if err != nil {
 			fmt.Println("❌ Failed to zip directory:", err)
@@ -48,7 +64,6 @@ var backupCmd = &cobra.Command{
 
 		// 🔐 Encrypt zipped buffer
 		fmt.Println("🔹 Encrypting zipped data...")
-		// progressReader = utils.NewProgressBuffer(zipBuffer.Bytes(), "Encrypting...", 40)
 		encryptedData, err := utils.EncryptBuffer(zipBuffer, password)
 		if err != nil {
 			fmt.Println("❌ Failed to encrypt data:", err)
@@ -56,15 +71,13 @@ var backupCmd = &cobra.Command{
 		}
 		fmt.Println("✅ Data encrypted in-memory.")
 
-		// 🧠 Get AWS user identity
-		userID, err := utils.GetUserID()
+		// ☁️ Upload to S3
+		username, err := auth.GetUsernameByEmail(userID)
 		if err != nil {
-			fmt.Println("❌ Failed to get AWS user ID:", err)
+			fmt.Println("❌ Failed to get username for S3 path:", err)
 			return
 		}
-
-		// ☁️ Upload to S3
-		s3Key := fmt.Sprintf("backups/%s/%s_v%s.obscure", userID, tag, version)
+		s3Key := fmt.Sprintf("backups/%s/%s_v%s.obscure", username, tag, version)
 		fmt.Println("🔹 Uploading backup to S3 at:", s3Key)
 		progressReader := utils.NewProgressBuffer(encryptedData.Bytes(), "Uploading...", 40)
 		err = utils.UploadToS3(progressReader, bucketName, s3Key)
@@ -82,6 +95,7 @@ func init() {
 
 	backupCmd.Flags().StringVarP(&tag, "tag", "t", "", "Tag for the backup")
 	backupCmd.Flags().StringVarP(&version, "version", "v", "", "Version for the backup")
+	backupCmd.Flags().String("user", "", "Email to identify backup owner (optional if logged in)")
 	backupCmd.MarkFlagRequired("tag")
 	backupCmd.MarkFlagRequired("version")
 }

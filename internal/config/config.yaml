@@ -1,0 +1,9 @@
+provider: s3
+s3:
+  bucket: obscure-open
+  region: us-east-1
+azure:
+  container: obscure-container
+  account_name: xyz
+gcp:
+  bucket: obscure-bucket
