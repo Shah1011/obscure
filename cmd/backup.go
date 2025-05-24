@@ -55,7 +55,7 @@ var backupCmd = &cobra.Command{
 
 		// 🗜️ Zip directory to buffer
 		fmt.Println("🔹 Zipping directory:", inputDir)
-		zipBuffer, err := utils.ZipDirectoryToBuffer(inputDir)
+		zipBuffer, err := utils.CompressDirectoryToZstd(inputDir)
 		if err != nil {
 			fmt.Println("❌ Failed to zip directory:", err)
 			return
@@ -78,6 +78,16 @@ var backupCmd = &cobra.Command{
 			return
 		}
 		s3Key := fmt.Sprintf("backups/%s/%s_v%s.obscure", username, tag, version)
+		exists, err := utils.CheckIfS3ObjectExists(bucketName, s3Key)
+		if err != nil {
+			fmt.Printf("❌ Failed to check existing backups: %v\n", err)
+			return
+		}
+		if exists {
+			fmt.Printf("❌ A backup with tag '%s' and version '%s' already exists.\n", tag, version)
+			fmt.Println("🚫 Aborting to avoid overwriting. Use a different tag/version.")
+			return
+		}
 		fmt.Println("🔹 Uploading backup to S3 at:", s3Key)
 		progressReader := utils.NewProgressBuffer(encryptedData.Bytes(), "Uploading...", 40)
 		err = utils.UploadToS3(progressReader, bucketName, s3Key)
