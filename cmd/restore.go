@@ -69,7 +69,7 @@ var restoreCmd = &cobra.Command{
 
 		// 📂 Unzip stream directly to restore folder
 		fmt.Println("📂 Restoring files...")
-		err = utils.UnzipFromStream(decStream, outputDir)
+		err = utils.DecompressZstdToDirectory(decStream, outputDir)
 		if err != nil {
 			fmt.Println("❌ Failed to unzip:", err)
 			return
