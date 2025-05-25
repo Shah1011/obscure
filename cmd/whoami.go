@@ -16,7 +16,14 @@ var whoamiCmd = &cobra.Command{
 			fmt.Println("👤 No user is currently logged in.")
 			return
 		}
-		fmt.Println("👤 Logged in as:", email)
+
+		username, err := config.GetSessionUsername()
+		if err != nil || username == "" {
+			fmt.Println("👤 Logged in as:", email)
+			return
+		}
+
+		fmt.Printf("👤 Logged in as: %s (%s)\n", username, email)
 	},
 }
 

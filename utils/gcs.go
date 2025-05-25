@@ -94,3 +94,32 @@ func UploadToGCSBackend(encryptedData []byte, username, tag, version, backendURL
 
 	return nil
 }
+
+var gcsBucketName = "obscure-open"
+
+func DownloadFromGCSStream(objectKey string) (io.ReadCloser, int64, error) {
+	ctx := context.Background()
+
+	// 🧠 Initialize GCS client (assumes ADC or service account key)
+	client, err := storage.NewClient(ctx, option.WithCredentialsFile("service-account.json"))
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to create GCS client: %w", err)
+	}
+
+	bucket := client.Bucket(gcsBucketName)
+	obj := bucket.Object(objectKey)
+
+	// 🔍 Get object attributes (to retrieve size)
+	attrs, err := obj.Attrs(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get GCS object attributes: %w", err)
+	}
+
+	// 📥 Create a streaming reader
+	reader, err := obj.NewReader(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to open GCS object reader: %w", err)
+	}
+
+	return reader, attrs.Size, nil
+}

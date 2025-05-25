@@ -16,7 +16,8 @@ type User struct {
 
 type Config struct {
 	Session struct {
-		Email string `yaml:"email"`
+		Email    string `yaml:"email"`
+		Username string `yaml:"username"`
 	} `yaml:"session"`
 }
 
@@ -81,6 +82,30 @@ func ClearSessionEmail() error {
 		}
 	}
 	cfg.Session.Email = ""
+	cfg.Session.Username = ""
+	return saveConfig(cfg)
+}
+
+func GetSessionUsername() (string, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return "", err
+	}
+	if cfg.Session.Username == "" {
+		return "", errors.New("no username is logged in")
+	}
+	return cfg.Session.Username, nil
+}
+
+func SetSessionUsername(username string) error {
+	cfg := &Config{}
+	if _, err := os.Stat(configPath); err == nil {
+		existing, err := loadConfig()
+		if err == nil {
+			cfg = existing
+		}
+	}
+	cfg.Session.Username = username
 	return saveConfig(cfg)
 }
 
@@ -111,4 +136,25 @@ func IsUserSignedUp(email string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func GetUsernameByEmail(email string) (string, error) {
+	filePath := getUsersFilePath()
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	var users map[string]*auth.User
+	err = json.Unmarshal(data, &users)
+	if err != nil {
+		return "", err
+	}
+
+	for _, user := range users {
+		if user.Email == email {
+			return user.Username, nil
+		}
+	}
+	return "", errors.New("username not found for email")
 }

@@ -17,30 +17,6 @@ import (
 
 const awsRegion = "us-east-1"
 
-// func UploadToS3(data io.ReadSeeker, bucketName string, s3Key string) error {
-
-// 	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
-// 	if err != nil {
-// 		return fmt.Errorf("unable to load SDK config: %w", err)
-// 	}
-
-// 	client := s3.NewFromConfig(cfg)
-
-// 	_, err = client.PutObject(context.TODO(), &s3.PutObjectInput{
-// 		Bucket:        aws.String(bucketName),
-// 		Key:           aws.String(s3Key),
-// 		Body:          data,
-// 		ContentType:   aws.String("application/octet-stream"),
-// 		ContentLength: aws.Int64(getReaderLength(data)),
-// 	})
-// 	if err != nil {
-// 		return fmt.Errorf("upload failed: %w", err)
-// 	}
-
-// 	fmt.Printf("\n✅ Uploaded to: https://%s.s3.%s.amazonaws.com/%s\n", bucketName, awsRegion, s3Key)
-// 	return nil
-// }
-
 func UploadToS3Backend(data []byte, username, tag, version, uploadURL string) error {
 	var b bytes.Buffer
 	writer := multipart.NewWriter(&b)
