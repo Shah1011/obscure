@@ -2,7 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"sync"
+	"time"
 
+	"github.com/manifoldco/promptui"
 	"github.com/shah1011/obscure/internal/auth"
 	"github.com/shah1011/obscure/internal/config"
 	"github.com/shah1011/obscure/utils"
@@ -11,20 +15,17 @@ import (
 
 var tag string
 var version string
-var bucketName = "obscure-open" // change this to your actual bucket
+var bucketName = "obscure-open" // Change this if needed
 
-// backupCmd represents the backup command
 var backupCmd = &cobra.Command{
 	Use:   "backup [directory]",
 	Args:  cobra.ExactArgs(1),
-	Short: "Back up and encrypt a directory, then upload to S3",
+	Short: "Back up and encrypt a directory, then upload to selected cloud",
 	Run: func(cmd *cobra.Command, args []string) {
 		inputDir := args[0]
 
-		// 🧠 Get AWS user identity
 		userFlag, _ := cmd.Flags().GetString("user")
 		var userID string
-
 		if userFlag != "" {
 			userID = userFlag
 		} else {
@@ -36,7 +37,6 @@ var backupCmd = &cobra.Command{
 			}
 		}
 
-		// 🔐 Prompt for password
 		password, err := utils.PromptPassword("🔐 Enter password for encryption: ")
 		if err != nil {
 			fmt.Println("❌ Failed to read password:", err)
@@ -53,17 +53,38 @@ var backupCmd = &cobra.Command{
 		}
 		fmt.Println("✅ Password securely confirmed.")
 
-		// 🗜️ Zip directory to buffer
-		fmt.Println("🔹 Zipping directory:", inputDir)
+		// 🌩️ Prompt cloud provider
+		providers := []string{"Amazon S3", "Google Cloud Storage"}
+
+		underline := "\033[4m"
+		reset := "\033[0m"
+
+		prompt := promptui.Select{
+			Label: "Select Cloud Provider",
+			Items: providers,
+			Templates: &promptui.SelectTemplates{
+				Label:    "{{ . }}",
+				Active:   underline + "{{ . | green }}" + reset,
+				Inactive: "{{ . }}",
+				Selected: "☁️  Selected: {{ . | green }}",
+			},
+			Stdout: os.Stderr,
+		}
+		idx, _, err := prompt.Run()
+		if err != nil {
+			fmt.Println("❌ Cloud selection failed:", err)
+			return
+		}
+
+		fmt.Println("🔹 Compressing directory:", inputDir)
 		zipBuffer, err := utils.CompressDirectoryToZstd(inputDir)
 		if err != nil {
 			fmt.Println("❌ Failed to zip directory:", err)
 			return
 		}
-		fmt.Println("✅ Directory zipped in-memory.")
+		fmt.Println("✅ Compressed in-memory.")
 
-		// 🔐 Encrypt zipped buffer
-		fmt.Println("🔹 Encrypting zipped data...")
+		fmt.Println("🔹 Encrypting data...")
 		encryptedData, err := utils.EncryptBuffer(zipBuffer, password)
 		if err != nil {
 			fmt.Println("❌ Failed to encrypt data:", err)
@@ -71,38 +92,127 @@ var backupCmd = &cobra.Command{
 		}
 		fmt.Println("✅ Data encrypted in-memory.")
 
-		// ☁️ Upload to S3
+		// Upload based on cloud
 		username, err := auth.GetUsernameByEmail(userID)
 		if err != nil {
-			fmt.Println("❌ Failed to get username for S3 path:", err)
+			fmt.Println("❌ Failed to get username:", err)
 			return
 		}
-		s3Key := fmt.Sprintf("backups/%s/%s_v%s.obscure", username, tag, version)
-		exists, err := utils.CheckIfS3ObjectExists(bucketName, s3Key)
-		if err != nil {
-			fmt.Printf("❌ Failed to check existing backups: %v\n", err)
-			return
+
+		done := make(chan bool)
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		// Start spinner in goroutine
+		go func() {
+			spinnerRunes := []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}
+			defer wg.Done()
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					for _, r := range spinnerRunes {
+						fmt.Printf("\r🔹 Uploading to cloud... %s", string(r))
+						time.Sleep(100 * time.Millisecond)
+					}
+				}
+			}
+		}()
+
+		// Key used internally for existence check (no _backup suffix)
+		keyPath := fmt.Sprintf("backups/%s/%s/%s_backup.obscure", username, tag, version)
+
+		switch idx {
+		case 0: // S3
+			exists, err := utils.CheckIfS3ObjectExists(bucketName, keyPath)
+			if err != nil {
+				done <- true
+				wg.Wait()
+				fmt.Printf("\n❌ Failed to check existing backups: %v\n", err)
+				return
+			}
+			if exists {
+				done <- true
+				wg.Wait()
+				fmt.Printf("\n❌ A backup with tag '%s' and version '%s' already exists in S3.\n", tag, version)
+				return
+			}
+
+			// Start timing upload process
+			startTime := time.Now()
+
+			// Upload first: this prints backend response internally
+			err = utils.UploadToS3Backend(
+				encryptedData.Bytes(),
+				username,
+				tag,
+				version,
+				"http://localhost:8080/s3-upload",
+			)
+			done <- true // Signal spinner to stop
+			wg.Wait()    // Wait for spinner to finish
+			fmt.Print("\r\033[K")
+			if err != nil {
+				fmt.Printf("❌ S3 Upload via backend failed: %v\n", err)
+				return
+			}
+
+			// Print file size and elapsed time in the same line as in your example
+			elapsed := time.Since(startTime)
+			sizeMB := float64(encryptedData.Len()) / (1024 * 1024)
+
+			// Print file size and time taken on the same line as progress bar finished (new line)
+			fmt.Printf("📦 File size: %.2f MB | ⏱ Time taken: %.2fs\n", sizeMB, elapsed.Seconds())
+
+		case 1: // GCS
+			exists, err := utils.CheckIfGCSObjectExists(bucketName, keyPath)
+			if err != nil {
+				done <- true
+				wg.Wait()
+				fmt.Printf("❌ Failed to check GCS: %v\n", err)
+				return
+			}
+			if exists {
+				done <- true
+				wg.Wait()
+				fmt.Printf("❌ A backup with tag '%s' and version '%s' already exists in GCS.\n", tag, version)
+				return
+			}
+
+			startTime := time.Now()
+
+			err = utils.UploadToGCSBackend(
+				encryptedData.Bytes(),
+				username,
+				tag,
+				version,
+				"http://localhost:8080/gcs-upload",
+			)
+
+			done <- true // Stop spinner
+			wg.Wait()
+			fmt.Print("\r\033[K") // Clear spinner line
+
+			if err != nil {
+				fmt.Printf("❌ GCS Upload failed: %v\n", err)
+				return
+			}
+
+			// Same UX as S3
+			elapsed := time.Since(startTime)
+			sizeMB := float64(encryptedData.Len()) / (1024 * 1024)
+
+			fmt.Printf("✅ Uploaded to GCS: backups/%s/%s/%s_backup.obscure\n", username, tag, version)
+			fmt.Printf("📦 File size: %.2f MB | ⏱ Time taken: %.2fs\n", sizeMB, elapsed.Seconds())
 		}
-		if exists {
-			fmt.Printf("❌ A backup with tag '%s' and version '%s' already exists.\n", tag, version)
-			fmt.Println("🚫 Aborting to avoid overwriting. Use a different tag/version.")
-			return
-		}
-		fmt.Println("🔹 Uploading backup to S3 at:", s3Key)
-		progressReader := utils.NewProgressBuffer(encryptedData.Bytes(), "Uploading...", 40)
-		err = utils.UploadToS3(progressReader, bucketName, s3Key)
-		if err != nil {
-			fmt.Printf("❌ Upload failed: %v\n", err)
-			return
-		}
-		fmt.Println("✅ Backup uploaded to S3")
+
 		fmt.Println("🎉 Backup completed successfully!")
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(backupCmd)
-
 	backupCmd.Flags().StringVarP(&tag, "tag", "t", "", "Tag for the backup")
 	backupCmd.Flags().StringVarP(&version, "version", "v", "", "Version for the backup")
 	backupCmd.Flags().String("user", "", "Email to identify backup owner (optional if logged in)")

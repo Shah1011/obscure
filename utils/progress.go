@@ -34,7 +34,7 @@ func (pb *ProgressBuffer) Read(p []byte) (int, error) {
 	if progress != pb.lastProgress {
 		fmt.Printf("\r%s [%s%s] %d%%",
 			pb.description,
-			strings.Repeat("#", progress),
+			strings.Repeat("█", progress),
 			strings.Repeat(" ", pb.barWidth-progress),
 			int(float64(pb.readBytes)*100/float64(pb.totalBytes)),
 		)
@@ -107,16 +107,15 @@ func (pw *ProgressWriter) printProgress() {
 }
 
 type ProgressReader struct {
-	Reader       io.Reader
-	Description  string
-	TotalBytes   int64
-	ReadBytes    int64
-	BarWidth     int
-	LastProgress int
-	LastPrint    time.Time
+	Reader      io.Reader
+	Description string
+	TotalBytes  int64
+	ReadBytes   int64
+	BarWidth    int
+	LastPrint   time.Time
 }
 
-func NewProgressReader(r io.Reader, description string, barWidth int, totalBytes int64) *ProgressReader {
+func NewProgressReader(r io.Reader, totalBytes int64, description string, barWidth int) *ProgressReader {
 	return &ProgressReader{
 		Reader:      r,
 		Description: description,
@@ -143,16 +142,18 @@ func (pr *ProgressReader) Read(p []byte) (int, error) {
 }
 
 func (pr *ProgressReader) printProgress() {
-	if pr.TotalBytes > 0 {
-		percent := float64(pr.ReadBytes) / float64(pr.TotalBytes)
-		progress := int(percent * float64(pr.BarWidth))
-		fmt.Printf("\r%s [%s%s] %3.0f%%",
-			pr.Description,
-			strings.Repeat("#", progress),
-			strings.Repeat(" ", pr.BarWidth-progress),
-			percent*100,
-		)
-	} else {
-		fmt.Printf("\r%s: %d KB", pr.Description, pr.ReadBytes/1024)
+	if pr.TotalBytes == 0 {
+		return
+	}
+	percent := float64(pr.ReadBytes) / float64(pr.TotalBytes)
+	progress := int(percent * float64(pr.BarWidth))
+	bar := strings.Repeat("█", progress) + strings.Repeat(" ", pr.BarWidth-progress)
+
+	elapsed := time.Since(pr.LastPrint).Seconds()
+	speed := float64(pr.ReadBytes) / elapsed / 1024 / 1024 // MB/s
+	fmt.Printf("\r%s [%s] %.0f%% (%.2f MB/s)", pr.Description, bar, percent*100, speed)
+
+	if pr.ReadBytes == pr.TotalBytes {
+		fmt.Println()
 	}
 }

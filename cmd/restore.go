@@ -58,7 +58,7 @@ var restoreCmd = &cobra.Command{
 		}
 		defer rawReader.Close()
 
-		progressReader := utils.NewProgressReader(rawReader, "Downloading", 40, size)
+		progressReader := utils.NewProgressReader(rawReader, size, "Downloading", 40)
 
 		// 🔓 Decrypt stream
 		decStream, err := utils.DecryptStream(progressReader, password)
