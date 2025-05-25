@@ -1,10 +1,13 @@
 package utils
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
+	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -14,27 +17,75 @@ import (
 
 const awsRegion = "us-east-1"
 
-func UploadToS3(data io.ReadSeeker, bucketName string, s3Key string) error {
+// func UploadToS3(data io.ReadSeeker, bucketName string, s3Key string) error {
 
-	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
+// 	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
+// 	if err != nil {
+// 		return fmt.Errorf("unable to load SDK config: %w", err)
+// 	}
+
+// 	client := s3.NewFromConfig(cfg)
+
+// 	_, err = client.PutObject(context.TODO(), &s3.PutObjectInput{
+// 		Bucket:        aws.String(bucketName),
+// 		Key:           aws.String(s3Key),
+// 		Body:          data,
+// 		ContentType:   aws.String("application/octet-stream"),
+// 		ContentLength: aws.Int64(getReaderLength(data)),
+// 	})
+// 	if err != nil {
+// 		return fmt.Errorf("upload failed: %w", err)
+// 	}
+
+// 	fmt.Printf("\n✅ Uploaded to: https://%s.s3.%s.amazonaws.com/%s\n", bucketName, awsRegion, s3Key)
+// 	return nil
+// }
+
+func UploadToS3Backend(data []byte, username, tag, version, uploadURL string) error {
+	var b bytes.Buffer
+	writer := multipart.NewWriter(&b)
+
+	// Add file field
+	part, err := writer.CreateFormFile("file", "backup.obscure")
 	if err != nil {
-		return fmt.Errorf("unable to load SDK config: %w", err)
+		return fmt.Errorf("create form file: %w", err)
 	}
 
-	client := s3.NewFromConfig(cfg)
-
-	_, err = client.PutObject(context.TODO(), &s3.PutObjectInput{
-		Bucket:        aws.String(bucketName),
-		Key:           aws.String(s3Key),
-		Body:          data,
-		ContentType:   aws.String("application/octet-stream"),
-		ContentLength: aws.Int64(getReaderLength(data)),
-	})
-	if err != nil {
-		return fmt.Errorf("upload failed: %w", err)
+	if _, err := io.Copy(part, bytes.NewReader(data)); err != nil {
+		return fmt.Errorf("write to form file: %w", err)
 	}
 
-	fmt.Printf("✅ Uploaded to: https://%s.s3.%s.amazonaws.com/%s\n", bucketName, awsRegion, s3Key)
+	// Add metadata fields
+	_ = writer.WriteField("username", username)
+	_ = writer.WriteField("tag", tag)
+	_ = writer.WriteField("version", version)
+
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("close writer: %w", err)
+	}
+
+	// Send request
+	req, err := http.NewRequest("POST", uploadURL, &b)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	fmt.Println("\n📡 S3 Backend response:", resp.Status)
+	fmt.Println(string(respBody))
+
+	if resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("S3 backend returned non-201: %s", resp.Status)
+	}
+
 	return nil
 }
 
