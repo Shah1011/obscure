@@ -1,0 +1,29 @@
+# Sensitive information
+service-account.json
+*.key
+*.pem
+credentials/
+.env
+
+# Binary files
+*.exe
+
+# Ensure .gitignore itself is not ignored
+!.gitignore
+
+# Typical Go ignores
+/vendor/
+/bin/
+/dist/
+*.dll
+*.so
+*.dylib
+
+# Testing
+*.test
+*.out
+
+# OS specific
+.DS_Store
+Thumbs.db
+
