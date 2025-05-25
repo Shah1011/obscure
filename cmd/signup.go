@@ -86,6 +86,11 @@ var signupCmd = &cobra.Command{
 			fmt.Println("⚠️  Signup successful but failed to save session:", err)
 			return
 		}
+		err = config.SetSessionUsername(username)
+		if err != nil {
+			fmt.Println("⚠️  Signup successful but failed to save session username:", err)
+			return
+		}
 	},
 }
 

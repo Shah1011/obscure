@@ -55,14 +55,26 @@ var loginCmd = &cobra.Command{
 			return
 		}
 
-		// Save the session
-		err = config.SetSessionEmail(email)
+		username, err := config.GetUsernameByEmail(email)
 		if err != nil {
-			fmt.Println("Failed to save session:", err)
+			fmt.Println("Failed to get username:", err)
 			return
 		}
 
-		fmt.Println("Logged in successfully as:", email)
+		// Save email and username in session
+		err = config.SetSessionEmail(email)
+		if err != nil {
+			fmt.Println("Failed to save session email:", err)
+			return
+		}
+
+		err = config.SetSessionUsername(username)
+		if err != nil {
+			fmt.Println("Failed to save session username:", err)
+			return
+		}
+
+		fmt.Println("Logged in successfully as:", username)
 	},
 }
 
