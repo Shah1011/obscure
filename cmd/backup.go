@@ -195,7 +195,7 @@ var backupCmd = &cobra.Command{
 			fmt.Print("\r\033[K") // Clear spinner line
 
 			if err != nil {
-				fmt.Printf("❌ GCS Upload failed: %v\n", err)
+				fmt.Fprintln(os.Stderr, err)
 				return
 			}
 

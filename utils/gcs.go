@@ -2,47 +2,23 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"bytes"
 	"mime/multipart"
 	"net/http"
 
 	"cloud.google.com/go/storage"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
 
-func UploadToGCS(data io.ReadSeeker, bucketName, objectName string) error {
-	ctx := context.Background()
-
-	client, err := GetGCSClient()
-	if err != nil {
-		return fmt.Errorf("failed to create GCS client: %w", err)
-	}
-	defer client.Close()
-
-	bucket := client.Bucket(bucketName)
-	obj := bucket.Object(objectName)
-	w := obj.NewWriter(ctx)
-
-	if _, err := io.Copy(w, data); err != nil {
-		return fmt.Errorf("failed to write to GCS: %w", err)
-	}
-
-	if err := w.Close(); err != nil {
-		return fmt.Errorf("failed to close GCS writer: %w", err)
-	}
-
-	fmt.Println("✅ Uploaded to GCS:", objectName)
-	return nil
-}
-
 func CheckIfGCSObjectExists(bucket, object string) (bool, error) {
 	ctx := context.Background()
-	client, err := GetGCSClient()
+	client, err := storage.NewClient(ctx, option.WithCredentialsFile(os.Getenv("OBSCURE_GCP_CREDENTIALS")))
 	if err != nil {
 		return false, fmt.Errorf("failed to create GCS client: %w", err)
 	}
@@ -50,13 +26,14 @@ func CheckIfGCSObjectExists(bucket, object string) (bool, error) {
 
 	_, err = client.Bucket(bucket).Object(object).Attrs(ctx)
 	if err != nil {
-		if err == storage.ErrObjectNotExist {
-			return false, nil
+		var gErr *googleapi.Error
+		if errors.As(err, &gErr) {
+			if gErr.Code == 404 {
+				// Not found, so backup does NOT exist
+				return false, nil
+			}
 		}
-		// Hide verbose GCS 404 messages for clarity
-		if strings.Contains(err.Error(), "Error 404") && strings.Contains(err.Error(), "notFound") {
-			return false, nil
-		}
+		// Other error
 		return false, fmt.Errorf("failed to check object attributes: %w", err)
 	}
 	return true, nil
@@ -112,7 +89,7 @@ func UploadToGCSBackend(encryptedData []byte, username, tag, version, backendURL
 
 	if resp.StatusCode != http.StatusCreated {
 		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("upload failed (%d): %s", resp.StatusCode, string(respBody))
+		return fmt.Errorf("%s", string(respBody))
 	}
 
 	return nil
