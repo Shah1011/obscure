@@ -2,10 +2,8 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
-	"github.com/manifoldco/promptui"
 	"github.com/shah1011/obscure/internal/config"
 	"github.com/shah1011/obscure/utils"
 	"github.com/spf13/cobra"
@@ -32,36 +30,42 @@ var restoreCmd = &cobra.Command{
 			}
 		}
 
-		// ☁️ Prompt user to select provider
-		providers := []string{"Amazon S3", "Google Cloud Storage"}
-		underline := "\033[4m"
-		reset := "\033[0m"
-		prompt := promptui.Select{
-			Label: "Select Cloud Provider",
-			Items: providers,
-			Templates: &promptui.SelectTemplates{
-				Label:    "{{ . }}",
-				Active:   underline + "{{ . | green }}" + reset,
-				Inactive: "{{ . }}",
-				Selected: "☁️  Selected: {{ . | green }}",
-			},
-			Stdout: os.Stderr,
+		// ✅ Get provider from session/config instead of prompting
+		var provider string
+
+		// First try to get the session provider (current active provider)
+		provider, err = config.GetSessionProvider()
+		if err != nil || provider == "" {
+			// Fallback to user default provider
+			provider, err = config.GetUserDefaultProvider()
+			if err != nil || provider == "" {
+				fmt.Println("❌ No default cloud provider found for user. Please set one using `obscure switch-provider`.")
+				return
+			}
 		}
-		idx, _, err := prompt.Run()
-		if err != nil {
-			fmt.Println("❌ Cloud selection failed:", err)
-			return
+
+		// Map provider keys to friendly names
+		providerNames := map[string]string{
+			"s3":  "Amazon S3",
+			"gcs": "Google Cloud Storage",
 		}
+
+		providerDisplayName := providerNames[provider]
+		if providerDisplayName == "" {
+			providerDisplayName = provider // fallback to original if not found
+		}
+
+		fmt.Printf("☁️  Using provider: %s\n", providerDisplayName)
 
 		// 🧬 Construct storage key based on provider
 		var key string
-		switch idx {
-		case 0: // Amazon S3
+		switch provider {
+		case "s3": // Amazon S3
 			key = fmt.Sprintf("backups/%s/%s/%s_backup.obscure", userID, restoreTag, restoreVersion)
-		case 1: // Google Cloud Storage
+		case "gcs": // Google Cloud Storage
 			key = fmt.Sprintf("%s/%s/%s_%s_v%s.obscure", userID, restoreTag, restoreVersion, restoreTag, restoreVersion)
 		default:
-			fmt.Println("❌ Unknown cloud provider selected.")
+			fmt.Println("❌ Unknown provider. Supported: s3, gcs.")
 			return
 		}
 
@@ -75,8 +79,8 @@ var restoreCmd = &cobra.Command{
 			return
 		}
 
-		switch idx {
-		case 0: // Amazon S3
+		switch provider {
+		case "s3": // Amazon S3
 			size, err := utils.GetObjectSize(bucketName, key)
 			if err != nil {
 				if strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "StatusCode: 404") {
@@ -109,13 +113,11 @@ var restoreCmd = &cobra.Command{
 				return
 			}
 
-		case 1: // Google Cloud Storage
+		case "gcs": // Google Cloud Storage
 			fmt.Println("🔽 Downloading encrypted backup from GCS...")
 			rawReader, size, err := utils.DownloadFromGCSStream(key)
 			if err != nil {
 				if strings.Contains(err.Error(), "storage: object doesn't exist") || strings.Contains(err.Error(), "Error 404") {
-					fmt.Printf("❌ No backup found for tag '%s' and version '%s' in GCS.\n", restoreTag, restoreVersion)
-				} else {
 					fmt.Println("❌ Failed to download backup from GCS:", err)
 				}
 				return
@@ -136,7 +138,7 @@ var restoreCmd = &cobra.Command{
 				return
 			}
 		default:
-			fmt.Println("❌ Unknown cloud provider selected.")
+			fmt.Println("❌ Unknown provider. Supported: s3, gcs.")
 			return
 		}
 

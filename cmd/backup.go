@@ -6,16 +6,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/manifoldco/promptui"
 	"github.com/shah1011/obscure/internal/auth"
 	"github.com/shah1011/obscure/internal/config"
 	"github.com/shah1011/obscure/utils"
+
 	"github.com/spf13/cobra"
 )
 
 var tag string
 var version string
-var bucketName = "obscure-open" // Change this if needed
+var bucketName = "obscure-open"
 
 var backupCmd = &cobra.Command{
 	Use:   "backup [directory]",
@@ -53,28 +53,32 @@ var backupCmd = &cobra.Command{
 		}
 		fmt.Println("✅ Password securely confirmed.")
 
-		// 🌩️ Prompt cloud provider
-		providers := []string{"Amazon S3", "Google Cloud Storage"}
+		// ✅ Fixed: Try to get provider from session first, then fallback to user default
+		var provider string
 
-		underline := "\033[4m"
-		reset := "\033[0m"
+		// First try to get the session provider (current active provider)
+		provider, err = config.GetSessionProvider()
+		if err != nil || provider == "" {
+			// Fallback to user default provider
+			provider, err = config.GetUserDefaultProvider()
+			if err != nil || provider == "" {
+				fmt.Println("❌ No default cloud provider found for user. Please set one using `obscure switch-provider`.")
+				return
+			}
+		}
 
-		prompt := promptui.Select{
-			Label: "Select Cloud Provider",
-			Items: providers,
-			Templates: &promptui.SelectTemplates{
-				Label:    "{{ . }}",
-				Active:   underline + "{{ . | green }}" + reset,
-				Inactive: "{{ . }}",
-				Selected: "☁️  Selected: {{ . | green }}",
-			},
-			Stdout: os.Stderr,
+		// Map provider keys to friendly names
+		providerNames := map[string]string{
+			"s3":  "Amazon S3",
+			"gcs": "Google Cloud Storage",
 		}
-		idx, _, err := prompt.Run()
-		if err != nil {
-			fmt.Println("❌ Cloud selection failed:", err)
-			return
+
+		providerDisplayName := providerNames[provider]
+		if providerDisplayName == "" {
+			providerDisplayName = provider // fallback to original if not found
 		}
+
+		fmt.Printf("☁️  Using provider: %s\n", providerDisplayName)
 
 		fmt.Println("🔹 Compressing directory:", inputDir)
 		zipBuffer, err := utils.CompressDirectoryToZstd(inputDir)
@@ -92,7 +96,6 @@ var backupCmd = &cobra.Command{
 		}
 		fmt.Println("✅ Data encrypted in-memory.")
 
-		// Upload based on cloud
 		username, err := auth.GetUsernameByEmail(userID)
 		if err != nil {
 			fmt.Println("❌ Failed to get username:", err)
@@ -103,7 +106,6 @@ var backupCmd = &cobra.Command{
 		var wg sync.WaitGroup
 		wg.Add(1)
 
-		// Start spinner in goroutine
 		go func() {
 			spinnerRunes := []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}
 			defer wg.Done()
@@ -120,11 +122,10 @@ var backupCmd = &cobra.Command{
 			}
 		}()
 
-		// Key used internally for existence check (no _backup suffix)
 		keyPath := fmt.Sprintf("backups/%s/%s/%s_backup.obscure", username, tag, version)
 
-		switch idx {
-		case 0: // S3
+		switch provider {
+		case "s3":
 			exists, err := utils.CheckIfS3ObjectExists(bucketName, keyPath)
 			if err != nil {
 				done <- true
@@ -139,10 +140,8 @@ var backupCmd = &cobra.Command{
 				return
 			}
 
-			// Start timing upload process
 			startTime := time.Now()
 
-			// Upload first: this prints backend response internally
 			err = utils.UploadToS3Backend(
 				encryptedData.Bytes(),
 				username,
@@ -150,22 +149,20 @@ var backupCmd = &cobra.Command{
 				version,
 				"http://localhost:8080/s3-upload",
 			)
-			done <- true // Signal spinner to stop
-			wg.Wait()    // Wait for spinner to finish
+			done <- true
+			wg.Wait()
 			fmt.Print("\r\033[K")
 			if err != nil {
 				fmt.Printf("❌ S3 Upload via backend failed: %v\n", err)
 				return
 			}
 
-			// Print file size and elapsed time in the same line as in your example
 			elapsed := time.Since(startTime)
 			sizeMB := float64(encryptedData.Len()) / (1024 * 1024)
-
-			// Print file size and time taken on the same line as progress bar finished (new line)
+			fmt.Printf("✅ Uploaded to S3: backups/%s/%s/%s_backup.obscure\n", username, tag, version)
 			fmt.Printf("📦 File size: %.2f MB | ⏱ Time taken: %.2fs\n", sizeMB, elapsed.Seconds())
 
-		case 1: // GCS
+		case "gcs":
 			exists, err := utils.CheckIfGCSObjectExists(bucketName, keyPath)
 			if err != nil {
 				done <- true
@@ -190,21 +187,24 @@ var backupCmd = &cobra.Command{
 				"http://localhost:8080/gcs-upload",
 			)
 
-			done <- true // Stop spinner
+			done <- true
 			wg.Wait()
-			fmt.Print("\r\033[K") // Clear spinner line
-
+			fmt.Print("\r\033[K")
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				return
 			}
 
-			// Same UX as S3
 			elapsed := time.Since(startTime)
 			sizeMB := float64(encryptedData.Len()) / (1024 * 1024)
-
 			fmt.Printf("✅ Uploaded to GCS: backups/%s/%s/%s_backup.obscure\n", username, tag, version)
 			fmt.Printf("📦 File size: %.2f MB | ⏱ Time taken: %.2fs\n", sizeMB, elapsed.Seconds())
+
+		default:
+			done <- true
+			wg.Wait()
+			fmt.Println("❌ Unknown provider. Supported: s3, gcs.")
+			return
 		}
 
 		fmt.Println("🎉 Backup completed successfully!")

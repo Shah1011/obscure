@@ -1,3 +1,6 @@
 session:
-    email: sania@gmail.com
-    username: sania2906
+    email: abul@gmail.com
+    username: abul
+    active_provider: s3
+user:
+    default_provider: s3
