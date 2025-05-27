@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/shah1011/obscure/internal/config"
@@ -32,11 +33,8 @@ var restoreCmd = &cobra.Command{
 
 		// ✅ Get provider from session/config instead of prompting
 		var provider string
-
-		// First try to get the session provider (current active provider)
 		provider, err = config.GetSessionProvider()
 		if err != nil || provider == "" {
-			// Fallback to user default provider
 			provider, err = config.GetUserDefaultProvider()
 			if err != nil || provider == "" {
 				fmt.Println("❌ No default cloud provider found for user. Please set one using `obscure switch-provider`.")
@@ -44,7 +42,6 @@ var restoreCmd = &cobra.Command{
 			}
 		}
 
-		// Map provider keys to friendly names
 		providerNames := map[string]string{
 			"s3":  "Amazon S3",
 			"gcs": "Google Cloud Storage",
@@ -52,17 +49,15 @@ var restoreCmd = &cobra.Command{
 
 		providerDisplayName := providerNames[provider]
 		if providerDisplayName == "" {
-			providerDisplayName = provider // fallback to original if not found
+			providerDisplayName = provider
 		}
-
 		fmt.Printf("☁️  Using provider: %s\n", providerDisplayName)
 
-		// 🧬 Construct storage key based on provider
 		var key string
 		switch provider {
-		case "s3": // Amazon S3
+		case "s3":
 			key = fmt.Sprintf("backups/%s/%s/%s_backup.obscure", userID, restoreTag, restoreVersion)
-		case "gcs": // Google Cloud Storage
+		case "gcs":
 			key = fmt.Sprintf("%s/%s/%s_%s_v%s.obscure", userID, restoreTag, restoreVersion, restoreTag, restoreVersion)
 		default:
 			fmt.Println("❌ Unknown provider. Supported: s3, gcs.")
@@ -72,16 +67,12 @@ var restoreCmd = &cobra.Command{
 		outputDir := fmt.Sprintf("restored_%s_v%s", restoreTag, restoreVersion)
 		fmt.Println("🔍 Attempting to restore from key:", key)
 
-		// 🔐 Prompt for decryption password
-		password, err := utils.PromptPassword("🔐 Enter decryption password:")
-		if err != nil || strings.TrimSpace(password) == "" {
-			fmt.Println("❌ Invalid or empty password.")
-			return
-		}
+		var rawReader io.ReadCloser
+		var size int64
 
 		switch provider {
-		case "s3": // Amazon S3
-			size, err := utils.GetObjectSize(bucketName, key)
+		case "s3":
+			size, err = utils.GetObjectSize(bucketName, key)
 			if err != nil {
 				if strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "StatusCode: 404") {
 					fmt.Printf("❌ No backup found for tag '%s' and version '%s' in S3.\n", restoreTag, restoreVersion)
@@ -92,53 +83,47 @@ var restoreCmd = &cobra.Command{
 			}
 
 			fmt.Println("🔽 Downloading encrypted backup from S3...")
-			rawReader, err := utils.DownloadFromS3Stream(bucketName, key)
+			rawReader, err = utils.DownloadFromS3Stream(bucketName, key)
 			if err != nil {
 				fmt.Println("❌ Failed to download backup:", err)
 				return
 			}
-			defer rawReader.Close()
 
-			progressReader := utils.NewProgressReader(rawReader, size, "Downloading", 40)
-
-			decStream, err := utils.DecryptStream(progressReader, password)
-			if err != nil {
-				fmt.Println("❌ Decryption failed:", err)
-				return
-			}
-
-			err = utils.DecompressZstdToDirectory(decStream, outputDir)
-			if err != nil {
-				fmt.Println("❌ Failed to decompress:", err)
-				return
-			}
-
-		case "gcs": // Google Cloud Storage
+		case "gcs":
 			fmt.Println("🔽 Downloading encrypted backup from GCS...")
-			rawReader, size, err := utils.DownloadFromGCSStream(key)
+			rawReader, size, err = utils.DownloadFromGCSStream(key)
 			if err != nil {
 				if strings.Contains(err.Error(), "storage: object doesn't exist") || strings.Contains(err.Error(), "Error 404") {
-					fmt.Println("❌ Failed to download backup from GCS:", err)
+					fmt.Printf("❌ No backup found for tag '%s' and version '%s' in GCS.\n", restoreTag, restoreVersion)
+				} else {
+					fmt.Println("❌ Failed to download backup:", err)
 				}
 				return
 			}
-			defer rawReader.Close()
-
-			progressReader := utils.NewProgressReader(rawReader, size, "Downloading", 40)
-
-			decStream, err := utils.DecryptStream(progressReader, password)
-			if err != nil {
-				fmt.Println("❌ Decryption failed:", err)
-				return
-			}
-
-			err = utils.DecompressZstdToDirectory(decStream, outputDir)
-			if err != nil {
-				fmt.Println("❌ Failed to unzip:", err)
-				return
-			}
 		default:
-			fmt.Println("❌ Unknown provider. Supported: s3, gcs.")
+			fmt.Println("❌ Unknown provider.")
+			return
+		}
+		defer rawReader.Close()
+
+		// 🔐 Prompt after confirming backup exists
+		password, err := utils.PromptPassword("🔐 Enter decryption password:")
+		if err != nil || strings.TrimSpace(password) == "" {
+			fmt.Println("❌ Invalid or empty password.")
+			return
+		}
+
+		progressReader := utils.NewProgressReader(rawReader, size, "Downloading", 40)
+
+		decStream, err := utils.DecryptStream(progressReader, password)
+		if err != nil {
+			fmt.Println("❌ Decryption failed:", err)
+			return
+		}
+
+		err = utils.DecompressZstdToDirectory(decStream, outputDir)
+		if err != nil {
+			fmt.Println("❌ Failed to decompress:", err)
 			return
 		}
 

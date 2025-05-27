@@ -18,7 +18,7 @@ import (
 
 func CheckIfGCSObjectExists(bucket, object string) (bool, error) {
 	ctx := context.Background()
-	client, err := storage.NewClient(ctx, option.WithCredentialsFile(os.Getenv("OBSCURE_GCP_CREDENTIALS")))
+	client, err := storage.NewClient(ctx, option.WithCredentialsFile(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")))
 	if err != nil {
 		return false, fmt.Errorf("failed to create GCS client: %w", err)
 	}
@@ -40,9 +40,9 @@ func CheckIfGCSObjectExists(bucket, object string) (bool, error) {
 }
 
 func GetGCSClient() (*storage.Client, error) {
-	credPath := os.Getenv("OBSCURE_GCP_CREDENTIALS")
+	credPath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
 	if credPath == "" {
-		return nil, fmt.Errorf("missing OBSCURE_GCP_CREDENTIALS environment variable")
+		return nil, fmt.Errorf("missing GOOGLE_APPLICATION_CREDENTIALS environment variable")
 	}
 
 	ctx := context.Background()
