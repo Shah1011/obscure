@@ -31,7 +31,7 @@ var restoreCmd = &cobra.Command{
 			}
 		}
 
-		// ✅ Get provider from session/config instead of prompting
+		// ✅ Get provider from session/config
 		var provider string
 		provider, err = config.GetSessionProvider()
 		if err != nil || provider == "" {
@@ -46,19 +46,19 @@ var restoreCmd = &cobra.Command{
 			"s3":  "Amazon S3",
 			"gcs": "Google Cloud Storage",
 		}
-
 		providerDisplayName := providerNames[provider]
 		if providerDisplayName == "" {
 			providerDisplayName = provider
 		}
 		fmt.Printf("☁️  Using provider: %s\n", providerDisplayName)
 
+		// 🗝️ Construct backup key (same naming convention for S3 and GCS)
 		var key string
 		switch provider {
 		case "s3":
 			key = fmt.Sprintf("backups/%s/%s/%s_backup.obscure", userID, restoreTag, restoreVersion)
 		case "gcs":
-			key = fmt.Sprintf("%s/%s/%s_%s_v%s.obscure", userID, restoreTag, restoreVersion, restoreTag, restoreVersion)
+			key = fmt.Sprintf("backups/%s/%s/%s_backup.obscure", userID, restoreTag, restoreVersion)
 		default:
 			fmt.Println("❌ Unknown provider. Supported: s3, gcs.")
 			return
@@ -106,7 +106,7 @@ var restoreCmd = &cobra.Command{
 		}
 		defer rawReader.Close()
 
-		// 🔐 Prompt after confirming backup exists
+		// 🔐 Prompt for password
 		password, err := utils.PromptPassword("🔐 Enter decryption password:")
 		if err != nil || strings.TrimSpace(password) == "" {
 			fmt.Println("❌ Invalid or empty password.")

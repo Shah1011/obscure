@@ -33,7 +33,7 @@ var lsCmd = &cobra.Command{
 
 		switch providerKey {
 		case "gcs":
-			prefix := fmt.Sprintf("%s/", username) // e.g., "abul/"
+			prefix := fmt.Sprintf("backups/%s/", username) // new
 			listFromGCS(prefix)
 		case "s3":
 			prefix := fmt.Sprintf("backups/%s/", username) // e.g., "backups/abul/"
@@ -73,7 +73,7 @@ func listFromGCS(prefix string) {
 		files = append(files, obj.Name)
 	}
 
-	printBackups(files)
+	printBackups(files, "gcs")
 }
 
 func listFromS3(prefix string) {
@@ -106,24 +106,54 @@ func listFromS3(prefix string) {
 		}
 	}
 
-	printBackups(files)
+	printBackups(files, "s3")
 }
 
-func printBackups(files []string) {
+func printBackups(files []string, provider string) {
 	if len(files) == 0 {
 		fmt.Println("📦 No backups found.")
 		return
 	}
 
-	greenBold := color.New(color.FgGreen, color.Bold).SprintFunc()
-	fmt.Println("📦 Available backups:")
+	grouped := make(map[string][]string)
 
 	for _, file := range files {
 		parts := strings.Split(file, "/")
-		if len(parts) > 0 {
-			filename := parts[len(parts)-1]
-			fmt.Printf("   - %s\n", greenBold(filename))
+
+		var tag, versionFile string
+
+		switch provider {
+		case "gcs":
+			if len(parts) < 3 {
+				continue // expect: username/tag/version
+			}
+			tag = parts[len(parts)-2]
+			versionFile = parts[len(parts)-1]
+
+		case "s3":
+			if len(parts) < 4 {
+				continue // expect: backups/username/tag/version
+			}
+			tag = parts[len(parts)-2]
+			versionFile = parts[len(parts)-1]
+
+		default:
+			continue // unknown provider
 		}
+
+		grouped[tag] = append(grouped[tag], versionFile)
+	}
+
+	greenBold := color.New(color.FgGreen, color.Bold).SprintFunc()
+	yellow := color.New(color.FgYellow, color.Bold).SprintFunc()
+
+	fmt.Println("📦 Available backups:")
+	for tag, versions := range grouped {
+		fmt.Printf("\n📁 Tag: %s\n", yellow(tag))
+		for _, v := range versions {
+			fmt.Printf("   - %s\n", greenBold(v))
+		}
+		fmt.Println()
 	}
 }
 
