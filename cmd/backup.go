@@ -36,7 +36,7 @@ var backupCmd = &cobra.Command{
 				return
 			}
 		}
-
+		fmt.Println("⚠️ IMPORTANT: Save this password in a secure location. You will need it to restore the backup or else the backup will be lost forever!")
 		password, err := utils.PromptPassword("🔐 Enter password for encryption: ")
 		if err != nil {
 			fmt.Println("❌ Failed to read password:", err)
