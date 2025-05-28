@@ -31,6 +31,14 @@ var restoreCmd = &cobra.Command{
 			}
 		}
 
+		token, err := config.GetSessionToken()
+		if err != nil || token == "" {
+			fmt.Println("❌ Not logged in. Please run `obscure login` or `obscure signup`.")
+			return
+		}
+
+		// Use token in Authorization header or validation
+
 		// ✅ Get provider from session/config
 		var provider string
 		provider, err = config.GetSessionProvider()

@@ -31,6 +31,14 @@ var lsCmd = &cobra.Command{
 
 		username, _ := cfg.GetSessionUsername()
 
+		token, err := cfg.GetSessionToken()
+		if err != nil || token == "" {
+			fmt.Println("❌ Not logged in. Please run `obscure login` or `obscure signup`.")
+			return
+		}
+
+		// Use token in Authorization header or validation
+
 		switch providerKey {
 		case "gcs":
 			prefix := fmt.Sprintf("backups/%s/", username) // new

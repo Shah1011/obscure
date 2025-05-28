@@ -8,6 +8,7 @@ import (
 	"github.com/manifoldco/promptui"
 	"github.com/shah1011/obscure/internal/auth"
 	"github.com/shah1011/obscure/internal/config"
+	"github.com/shah1011/obscure/internal/firebase"
 	"github.com/shah1011/obscure/utils"
 	"github.com/spf13/cobra"
 )
@@ -24,7 +25,12 @@ var signupCmd = &cobra.Command{
 		}
 
 		// Check if user already exists
-		if auth.UserExists(email) {
+		exists, err := firebase.UserEmailExists(email)
+		if err != nil {
+			fmt.Println("❌ Error checking user in Firestore:", err)
+			return
+		}
+		if exists {
 			fmt.Println("❌ User already exists with that email.")
 			return
 		}
@@ -36,7 +42,12 @@ var signupCmd = &cobra.Command{
 			return
 		}
 
-		if auth.UsernameExists(username) {
+		taken, err := firebase.UsernameTaken(username)
+		if err != nil {
+			fmt.Println("❌ Error checking username in Firestore:", err)
+			return
+		}
+		if taken {
 			fmt.Println("❌ Username is already taken.")
 			return
 		}
@@ -98,16 +109,34 @@ var signupCmd = &cobra.Command{
 			return
 		}
 
-		// Step 8: Save user
-		err = auth.SaveUser(email, username, password)
+		// Step 8: Create user in Firebase Auth
+		userRecord, err := firebase.SignUpUser(email, password)
 		if err != nil {
-			fmt.Println("❌ Failed to save user:", err)
+			fmt.Println("❌ Failed to create Firebase user:", err)
 			return
+		}
+
+		// Step 9: Save user data in Firestore
+		err = firebase.SaveUserData(userRecord.UID, username, provider)
+		if err != nil {
+			fmt.Println("❌ Failed to save user data in Firestore:", err)
+			return
+		}
+
+		idToken, err := firebase.FirebaseLogin(email, password, os.Getenv("FIREBASE_API_KEY"))
+		if err != nil {
+			fmt.Println("❌ Login failed after signup:", err)
+			return
+		}
+
+		// Save token locally
+		if err := config.SetSessionToken(idToken); err != nil {
+			fmt.Println("⚠️  Signup successful but failed to save session token:", err)
 		}
 
 		fmt.Println("✅ Signup complete. You are now registered.")
 
-		// Step 9: Save session details
+		// Step 10: Save session details locally
 		if err := config.SetSessionEmail(email); err != nil {
 			fmt.Println("⚠️  Signup successful but failed to save session:", err)
 			return
@@ -116,13 +145,9 @@ var signupCmd = &cobra.Command{
 			fmt.Println("⚠️  Signup successful but failed to save session username:", err)
 			return
 		}
-
-		// ✅ Step 10: Save default provider for the user
 		if err := config.SetUserDefaultProvider(provider); err != nil {
 			fmt.Println("⚠️  Signup successful but failed to save default provider:", err)
 		}
-
-		// ✅ Step 11: Set active session provider
 		if err := config.SetSessionProvider(provider); err != nil {
 			fmt.Println("⚠️  Signup successful but failed to set active provider:", err)
 		}
