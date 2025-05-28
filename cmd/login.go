@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/shah1011/obscure/internal/auth"
 	"github.com/shah1011/obscure/internal/config"
+	firebase "github.com/shah1011/obscure/internal/firebase"
 	"github.com/shah1011/obscure/utils"
 	"github.com/spf13/cobra"
 )
@@ -23,21 +23,9 @@ var loginCmd = &cobra.Command{
 			fmt.Println("Error reading input:", err)
 			return
 		}
-
 		email = strings.TrimSpace(email)
 		if email == "" {
 			fmt.Println("Email cannot be empty.")
-			return
-		}
-
-		// Check if the user has signed up
-		exists, err := config.IsUserSignedUp(email)
-		if err != nil {
-			fmt.Println("Error checking user:", err)
-			return
-		}
-		if !exists {
-			fmt.Println("No user found with that email. Please sign up first using `obscure signup`.")
 			return
 		}
 
@@ -48,33 +36,58 @@ var loginCmd = &cobra.Command{
 			return
 		}
 
-		// Verify password
-		valid := auth.CheckPassword(email, password)
-		if !valid {
-			fmt.Println("❌ Invalid password. Please try again.")
+		// Call Firebase REST API to login and get idToken
+		apiKey := os.Getenv("FIREBASE_API_KEY")
+		if apiKey == "" {
+			fmt.Println("❌ FIREBASE_API_KEY environment variable is not set")
 			return
 		}
-
-		username, err := config.GetUsernameByEmail(email)
+		idToken, err := firebase.FirebaseLogin(email, password, apiKey)
 		if err != nil {
-			fmt.Println("Failed to get username:", err)
+			fmt.Println("❌ Login failed:", err)
 			return
 		}
 
-		// Save email and username in session
+		// Debug: Print token length to verify we got something
+		fmt.Printf("🔑 Got token of length: %d\n", len(idToken))
+
+		// Save token locally
+		if err := config.SetSessionToken(idToken); err != nil {
+			fmt.Println("⚠️  Login successful but failed to save session token:", err)
+			return
+		}
+
+		// Verify token was saved
+		savedToken, err := config.GetSessionToken()
+		if err != nil || savedToken == "" {
+			fmt.Println("⚠️  Token was not saved correctly")
+			return
+		}
+		if savedToken != idToken {
+			fmt.Println("⚠️  Saved token does not match received token")
+			return
+		}
+
+		// Use idToken to fetch user info from Firestore (optional)
+		userData, err := config.GetUserDataByEmail(email)
+		if err != nil {
+			fmt.Println("❌ Failed to fetch user data:", err)
+			return
+		}
+
+		// Save session details locally
 		err = config.SetSessionEmail(email)
 		if err != nil {
 			fmt.Println("Failed to save session email:", err)
 			return
 		}
-
-		err = config.SetSessionUsername(username)
+		err = config.SetSessionUsername(userData.Username)
 		if err != nil {
 			fmt.Println("Failed to save session username:", err)
 			return
 		}
 
-		fmt.Println("Logged in successfully as:", username)
+		fmt.Printf("✅ Logged in successfully as %s\n", userData.Username)
 	},
 }
 

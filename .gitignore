@@ -1,5 +1,6 @@
 # Sensitive information
 service-account.json
+serviceAccountKey.json
 *.key
 *.pem
 credentials/

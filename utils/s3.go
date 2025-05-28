@@ -17,7 +17,8 @@ import (
 
 const awsRegion = "us-east-1"
 
-func UploadToS3Backend(data []byte, username, tag, version, uploadURL string) error {
+func UploadToS3Backend(data []byte, username, tag, version, uploadURL, authToken string) error {
+	// In UploadToS3Backend, right before making the request:
 	var b bytes.Buffer
 	writer := multipart.NewWriter(&b)
 
@@ -46,6 +47,7 @@ func UploadToS3Backend(data []byte, username, tag, version, uploadURL string) er
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+authToken)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)

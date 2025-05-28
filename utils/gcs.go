@@ -53,7 +53,7 @@ func GetGCSClient() (*storage.Client, error) {
 	return client, nil
 }
 
-func UploadToGCSBackend(encryptedData []byte, username, tag, version, backendURL string) error {
+func UploadToGCSBackend(encryptedData []byte, username, tag, version, backendURL, authToken string) error {
 	// Prepare multipart form
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -80,6 +80,7 @@ func UploadToGCSBackend(encryptedData []byte, username, tag, version, backendURL
 		return err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+authToken)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

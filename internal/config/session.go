@@ -1,12 +1,15 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/shah1011/obscure/internal/auth"
+	firebase "github.com/shah1011/obscure/internal/firebase"
 	"gopkg.in/yaml.v3"
 )
 
@@ -214,6 +217,37 @@ func GetUsernameByEmail(email string) (string, error) {
 	return "", errors.New("username not found for email")
 }
 
+func GetUserDataByEmail(email string) (*UserData, error) {
+	client, err := firebase.GetFirestoreClient()
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
+
+	// Firestore does not index email by default, so you might store email as a field
+	// and query by it in the "users" collection.
+
+	iter := client.Collection("users").Where("email", "==", email).Documents(context.Background())
+	docs, err := iter.GetAll()
+	if err != nil || len(docs) == 0 {
+		return nil, fmt.Errorf("user not found")
+	}
+
+	var userData UserData
+	err = docs[0].DataTo(&userData)
+	if err != nil {
+		return nil, err
+	}
+
+	return &userData, nil
+}
+
+type UserData struct {
+	Username string `firestore:"username"`
+	Email    string `firestore:"email"`
+	Provider string `firestore:"defaultProvider"`
+}
+
 func SetUserDefaultProvider(provider string) error {
 	cfg := &Config{}
 	if _, err := os.Stat(configPath); err == nil {
@@ -276,4 +310,53 @@ func GetSessionProvider() (string, error) {
 		return "", errors.New("no session configuration found")
 	}
 	return cfg.Session.ActiveProvider, nil
+}
+
+func set(key, value string) error {
+	cfg := &Config{}
+	if _, err := os.Stat(configPath); err == nil {
+		existing, err := loadConfig()
+		if err == nil {
+			cfg = existing
+		}
+	}
+
+	if cfg.Session == nil {
+		cfg.Session = &struct {
+			Email          string `yaml:"email"`
+			Username       string `yaml:"username"`
+			ActiveProvider string `yaml:"active_provider"`
+		}{}
+	}
+
+	switch key {
+	case "session.token":
+		// Store token in a separate file for security
+		tokenPath := filepath.Join(filepath.Dir(configPath), "token")
+		return os.WriteFile(tokenPath, []byte(value), 0600)
+	default:
+		return fmt.Errorf("unknown key: %s", key)
+	}
+}
+
+func get(key string) (string, error) {
+	switch key {
+	case "session.token":
+		tokenPath := filepath.Join(filepath.Dir(configPath), "token")
+		data, err := os.ReadFile(tokenPath)
+		if err != nil {
+			return "", err
+		}
+		return string(data), nil
+	default:
+		return "", fmt.Errorf("unknown key: %s", key)
+	}
+}
+
+func SetSessionToken(token string) error {
+	return set("session.token", token)
+}
+
+func GetSessionToken() (string, error) {
+	return get("session.token")
 }

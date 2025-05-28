@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shah1011/obscure/internal/auth"
 	"github.com/shah1011/obscure/internal/config"
 	"github.com/shah1011/obscure/utils"
 
@@ -24,18 +23,19 @@ var backupCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		inputDir := args[0]
 
-		userFlag, _ := cmd.Flags().GetString("user")
-		var userID string
-		if userFlag != "" {
-			userID = userFlag
-		} else {
-			var err error
-			userID, err = config.GetSessionEmail()
-			if err != nil || userID == "" {
-				fmt.Println("❌ You are not logged in. Use --user or run `obscure login`")
-				return
-			}
+		// Check if user is logged in
+		_, err := config.GetSessionEmail()
+		if err != nil {
+			fmt.Println("❌ You are not logged in. Please run `obscure login`")
+			return
 		}
+
+		token, err := config.GetSessionToken()
+		if err != nil || token == "" {
+			fmt.Println("❌ Could not read auth token. Please log in first using `obscure login`.")
+			return
+		}
+
 		fmt.Println("⚠️ IMPORTANT: Save this password in a secure location. You will need it to restore the backup or else the backup will be lost forever!")
 		password, err := utils.PromptPassword("🔐 Enter password for encryption: ")
 		if err != nil {
@@ -96,9 +96,9 @@ var backupCmd = &cobra.Command{
 		}
 		fmt.Println("✅ Data encrypted in-memory.")
 
-		username, err := auth.GetUsernameByEmail(userID)
-		if err != nil {
-			fmt.Println("❌ Failed to get username:", err)
+		username, err := config.GetSessionUsername()
+		if err != nil || username == "" {
+			fmt.Println("❌ Failed to get username from session. Please log in again.")
 			return
 		}
 
@@ -148,6 +148,7 @@ var backupCmd = &cobra.Command{
 				tag,
 				version,
 				"http://localhost:8080/s3-upload",
+				token,
 			)
 			done <- true
 			wg.Wait()
@@ -185,6 +186,7 @@ var backupCmd = &cobra.Command{
 				tag,
 				version,
 				"http://localhost:8080/gcs-upload",
+				token,
 			)
 
 			done <- true

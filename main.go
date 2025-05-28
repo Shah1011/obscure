@@ -15,5 +15,6 @@ func main() {
 	if err != nil {
 		log.Println("⚠️  .env file not found or couldn't be loaded. Falling back to default env vars.")
 	}
+
 	cmd.Execute()
 }

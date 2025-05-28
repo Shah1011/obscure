@@ -1,6 +1,6 @@
 session:
-    email: abul@gmail.com
-    username: abul
-    active_provider: gcs
+    email: shah@gmail.com
+    username: danish
+    active_provider: s3
 user:
     default_provider: s3
