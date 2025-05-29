@@ -113,15 +113,18 @@ type ProgressReader struct {
 	ReadBytes   int64
 	BarWidth    int
 	LastPrint   time.Time
+	StartTime   time.Time // Add start time tracking
 }
 
 func NewProgressReader(r io.Reader, totalBytes int64, description string, barWidth int) *ProgressReader {
+	now := time.Now()
 	return &ProgressReader{
 		Reader:      r,
 		Description: description,
 		TotalBytes:  totalBytes,
 		BarWidth:    barWidth,
-		LastPrint:   time.Now(),
+		LastPrint:   now,
+		StartTime:   now, // Initialize start time
 	}
 }
 
@@ -129,12 +132,17 @@ func (pr *ProgressReader) Read(p []byte) (int, error) {
 	n, err := pr.Reader.Read(p)
 	pr.ReadBytes += int64(n)
 
-	if time.Since(pr.LastPrint) > 200*time.Millisecond || err == io.EOF {
+	// Always update progress on EOF or when enough time has passed
+	if err == io.EOF || time.Since(pr.LastPrint) > 200*time.Millisecond {
 		pr.printProgress()
 		pr.LastPrint = time.Now()
 	}
 
+	// If we're at EOF, ensure we show 100% completion
 	if err == io.EOF {
+		// Force final progress update
+		pr.ReadBytes = pr.TotalBytes
+		pr.printProgress()
 		fmt.Println()
 	}
 
@@ -145,15 +153,29 @@ func (pr *ProgressReader) printProgress() {
 	if pr.TotalBytes == 0 {
 		return
 	}
+
+	// Calculate progress based on actual bytes read
 	percent := float64(pr.ReadBytes) / float64(pr.TotalBytes)
+	if percent > 1.0 {
+		percent = 1.0
+	}
+
 	progress := int(percent * float64(pr.BarWidth))
+	if progress > pr.BarWidth {
+		progress = pr.BarWidth
+	}
+
 	bar := strings.Repeat("█", progress) + strings.Repeat(" ", pr.BarWidth-progress)
 
-	elapsed := time.Since(pr.LastPrint).Seconds()
-	speed := float64(pr.ReadBytes) / elapsed / 1024 / 1024 // MB/s
-	fmt.Printf("\r%s [%s] %.0f%% (%.2f MB/s)", pr.Description, bar, percent*100, speed)
-
-	if pr.ReadBytes == pr.TotalBytes {
-		fmt.Println()
+	// Calculate speed based on total elapsed time
+	totalElapsed := time.Since(pr.StartTime).Seconds()
+	if totalElapsed == 0 {
+		totalElapsed = 0.001 // Prevent division by zero
 	}
+
+	// Calculate average speed over the entire operation
+	speed := float64(pr.ReadBytes) / totalElapsed / 1024 / 1024 // MB/s
+
+	// Print progress with percentage and speed
+	fmt.Printf("\r%s [%s] %.0f%% (%.2f MB/s)", pr.Description, bar, percent*100, speed)
 }

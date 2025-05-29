@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -17,13 +18,17 @@ import (
 
 const awsRegion = "us-east-1"
 
-func UploadToS3Backend(data []byte, username, tag, version, uploadURL, authToken string) error {
+func UploadToS3Backend(data []byte, username, tag, version, uploadURL, authToken string, isDirect bool) error {
 	// In UploadToS3Backend, right before making the request:
 	var b bytes.Buffer
 	writer := multipart.NewWriter(&b)
 
-	// Add file field
-	part, err := writer.CreateFormFile("file", "backup.obscure")
+	// Add file field with appropriate extension
+	extension := "obscure"
+	if isDirect {
+		extension = "tar"
+	}
+	part, err := writer.CreateFormFile("file", fmt.Sprintf("backup.%s", extension))
 	if err != nil {
 		return fmt.Errorf("create form file: %w", err)
 	}
@@ -36,6 +41,7 @@ func UploadToS3Backend(data []byte, username, tag, version, uploadURL, authToken
 	_ = writer.WriteField("username", username)
 	_ = writer.WriteField("tag", tag)
 	_ = writer.WriteField("version", version)
+	_ = writer.WriteField("is_direct", fmt.Sprintf("%v", isDirect))
 
 	if err := writer.Close(); err != nil {
 		return fmt.Errorf("close writer: %w", err)
@@ -59,6 +65,10 @@ func UploadToS3Backend(data []byte, username, tag, version, uploadURL, authToken
 	respBody, _ := io.ReadAll(resp.Body)
 	fmt.Println("\n📡 S3 Backend response:", resp.Status)
 	fmt.Println(string(respBody))
+
+	if resp.StatusCode == http.StatusUnauthorized && strings.Contains(string(respBody), "Invalid Firebase ID token") {
+		return fmt.Errorf("session expired: please run 'obscure login' to authenticate again")
+	}
 
 	if resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("S3 backend returned non-201: %s", resp.Status)
