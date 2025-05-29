@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 var tag string
 var version string
 var bucketName = "obscure-open"
+var directUpload bool
 
 var backupCmd = &cobra.Command{
 	Use:   "backup [directory]",
@@ -36,22 +38,51 @@ var backupCmd = &cobra.Command{
 			return
 		}
 
-		fmt.Println("⚠️ IMPORTANT: Save this password in a secure location. You will need it to restore the backup or else the backup will be lost forever!")
-		password, err := utils.PromptPassword("🔐 Enter password for encryption: ")
-		if err != nil {
-			fmt.Println("❌ Failed to read password:", err)
-			return
+		var dataToUpload []byte
+		if !directUpload {
+			fmt.Println("⚠️ IMPORTANT: Save this password in a secure location. You will need it to restore the backup or else the backup will be lost forever!")
+			password, err := utils.PromptPassword("🔐 Enter password for encryption: ")
+			if err != nil {
+				fmt.Println("❌ Failed to read password:", err)
+				return
+			}
+			confirmPassword, err := utils.PromptPassword("🔐 Re-enter password to confirm: ")
+			if err != nil {
+				fmt.Println("❌ Failed to read password confirmation:", err)
+				return
+			}
+			if password != confirmPassword {
+				fmt.Println("❌ Passwords do not match. Please try again.")
+				return
+			}
+			fmt.Println("✅ Password securely confirmed.")
+
+			fmt.Println("🔹 Compressing directory:", inputDir)
+			zipBuffer, err := utils.CompressDirectoryToZstd(inputDir)
+			if err != nil {
+				fmt.Println("❌ Failed to zip directory:", err)
+				return
+			}
+			fmt.Println("✅ Compressed in-memory.")
+
+			fmt.Println("🔹 Encrypting data...")
+			encryptedData, err := utils.EncryptBuffer(zipBuffer, password)
+			if err != nil {
+				fmt.Println("❌ Failed to encrypt data:", err)
+				return
+			}
+			fmt.Println("✅ Data encrypted in-memory.")
+			dataToUpload = encryptedData.Bytes()
+		} else {
+			// Direct upload - just read the directory as is
+			fmt.Println("🔹 Reading directory for direct upload:", inputDir)
+			dirData, err := utils.ReadDirectoryAsBytes(inputDir)
+			if err != nil {
+				fmt.Println("❌ Failed to read directory:", err)
+				return
+			}
+			dataToUpload = dirData
 		}
-		confirmPassword, err := utils.PromptPassword("🔐 Re-enter password to confirm: ")
-		if err != nil {
-			fmt.Println("❌ Failed to read password confirmation:", err)
-			return
-		}
-		if password != confirmPassword {
-			fmt.Println("❌ Passwords do not match. Please try again.")
-			return
-		}
-		fmt.Println("✅ Password securely confirmed.")
 
 		// ✅ Fixed: Try to get provider from session first, then fallback to user default
 		var provider string
@@ -79,22 +110,6 @@ var backupCmd = &cobra.Command{
 		}
 
 		fmt.Printf("☁️  Using provider: %s\n", providerDisplayName)
-
-		fmt.Println("🔹 Compressing directory:", inputDir)
-		zipBuffer, err := utils.CompressDirectoryToZstd(inputDir)
-		if err != nil {
-			fmt.Println("❌ Failed to zip directory:", err)
-			return
-		}
-		fmt.Println("✅ Compressed in-memory.")
-
-		fmt.Println("🔹 Encrypting data...")
-		encryptedData, err := utils.EncryptBuffer(zipBuffer, password)
-		if err != nil {
-			fmt.Println("❌ Failed to encrypt data:", err)
-			return
-		}
-		fmt.Println("✅ Data encrypted in-memory.")
 
 		username, err := config.GetSessionUsername()
 		if err != nil || username == "" {
@@ -143,24 +158,33 @@ var backupCmd = &cobra.Command{
 			startTime := time.Now()
 
 			err = utils.UploadToS3Backend(
-				encryptedData.Bytes(),
+				dataToUpload,
 				username,
 				tag,
 				version,
 				"http://localhost:8080/s3-upload",
 				token,
+				directUpload,
 			)
 			done <- true
 			wg.Wait()
 			fmt.Print("\r\033[K")
 			if err != nil {
+				if strings.Contains(err.Error(), "session expired") {
+					fmt.Println("❌", err.Error())
+					return
+				}
 				fmt.Printf("❌ S3 Upload via backend failed: %v\n", err)
 				return
 			}
 
 			elapsed := time.Since(startTime)
-			sizeMB := float64(encryptedData.Len()) / (1024 * 1024)
-			fmt.Printf("✅ Uploaded to S3: backups/%s/%s/%s_backup.obscure\n", username, tag, version)
+			sizeMB := float64(len(dataToUpload)) / (1024 * 1024)
+			extension := "obscure"
+			if directUpload {
+				extension = "tar"
+			}
+			fmt.Printf("✅ Uploaded to S3: backups/%s/%s/%s_backup.%s\n", username, tag, version, extension)
 			fmt.Printf("📦 File size: %.2f MB | ⏱ Time taken: %.2fs\n", sizeMB, elapsed.Seconds())
 
 		case "gcs":
@@ -181,25 +205,34 @@ var backupCmd = &cobra.Command{
 			startTime := time.Now()
 
 			err = utils.UploadToGCSBackend(
-				encryptedData.Bytes(),
+				dataToUpload,
 				username,
 				tag,
 				version,
 				"http://localhost:8080/gcs-upload",
 				token,
+				directUpload,
 			)
 
 			done <- true
 			wg.Wait()
 			fmt.Print("\r\033[K")
 			if err != nil {
+				if strings.Contains(err.Error(), "session expired") {
+					fmt.Println("❌", err.Error())
+					return
+				}
 				fmt.Fprintln(os.Stderr, err)
 				return
 			}
 
 			elapsed := time.Since(startTime)
-			sizeMB := float64(encryptedData.Len()) / (1024 * 1024)
-			fmt.Printf("✅ Uploaded to GCS: backups/%s/%s/%s_backup.obscure\n", username, tag, version)
+			sizeMB := float64(len(dataToUpload)) / (1024 * 1024)
+			extension := "obscure"
+			if directUpload {
+				extension = "tar"
+			}
+			fmt.Printf("✅ Uploaded to GCS: backups/%s/%s/%s_backup.%s\n", username, tag, version, extension)
 			fmt.Printf("📦 File size: %.2f MB | ⏱ Time taken: %.2fs\n", sizeMB, elapsed.Seconds())
 
 		default:
@@ -218,6 +251,7 @@ func init() {
 	backupCmd.Flags().StringVarP(&tag, "tag", "t", "", "Tag for the backup")
 	backupCmd.Flags().StringVarP(&version, "version", "v", "", "Version for the backup")
 	backupCmd.Flags().String("user", "", "Email to identify backup owner (optional if logged in)")
+	backupCmd.Flags().BoolVarP(&directUpload, "direct", "d", false, "Direct upload without encryption or compression")
 	backupCmd.MarkFlagRequired("tag")
 	backupCmd.MarkFlagRequired("version")
 }

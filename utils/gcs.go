@@ -53,7 +53,7 @@ func GetGCSClient() (*storage.Client, error) {
 	return client, nil
 }
 
-func UploadToGCSBackend(encryptedData []byte, username, tag, version, backendURL, authToken string) error {
+func UploadToGCSBackend(encryptedData []byte, username, tag, version, backendURL, authToken string, isDirect bool) error {
 	// Prepare multipart form
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -62,9 +62,14 @@ func UploadToGCSBackend(encryptedData []byte, username, tag, version, backendURL
 	_ = writer.WriteField("username", username)
 	_ = writer.WriteField("tag", tag)
 	_ = writer.WriteField("version", version)
+	_ = writer.WriteField("is_direct", fmt.Sprintf("%v", isDirect))
 
-	// Add file field
-	part, err := writer.CreateFormFile("file", fmt.Sprintf("%s_v%s.obscure", tag, version))
+	// Add file field with appropriate extension
+	extension := "obscure"
+	if isDirect {
+		extension = "tar"
+	}
+	part, err := writer.CreateFormFile("file", fmt.Sprintf("%s_v%s.%s", tag, version, extension))
 	if err != nil {
 		return err
 	}
