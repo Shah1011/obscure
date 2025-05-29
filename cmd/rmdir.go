@@ -151,7 +151,7 @@ func deleteAllFromGCS(prefix string) {
 			fmt.Println("❌ Failed to delete:", obj.Name)
 			continue
 		}
-		fmt.Println("🗑️  Deleted:", obj.Name)
+		fmt.Println("🗑️ Deleted:", obj.Name)
 	}
 }
 
@@ -184,7 +184,7 @@ func deleteAllFromS3(prefix string) {
 				fmt.Println("❌ Failed to delete:", *obj.Key)
 				continue
 			}
-			fmt.Println("🗑️  Deleted:", *obj.Key)
+			fmt.Println("🗑️ Deleted:", *obj.Key)
 		}
 	}
 }

@@ -14,6 +14,10 @@ func ReadDirectoryAsBytes(dirPath string) ([]byte, error) {
 	// Create a buffer to store the directory contents
 	var buf bytes.Buffer
 
+	// Create a single tar writer for the entire archive
+	tw := tar.NewWriter(&buf)
+	defer tw.Close()
+
 	// Walk through the directory
 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -39,8 +43,6 @@ func ReadDirectoryAsBytes(dirPath string) ([]byte, error) {
 			ModTime: info.ModTime(),
 		}
 
-		// Create tar writer
-		tw := tar.NewWriter(&buf)
 		if err := tw.WriteHeader(header); err != nil {
 			return fmt.Errorf("failed to write tar header: %w", err)
 		}
@@ -58,16 +60,16 @@ func ReadDirectoryAsBytes(dirPath string) ([]byte, error) {
 			}
 		}
 
-		// Close the tar writer
-		if err := tw.Close(); err != nil {
-			return fmt.Errorf("failed to close tar writer: %w", err)
-		}
-
 		return nil
 	})
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to walk directory: %w", err)
+	}
+
+	// Close the tar writer to flush any remaining data
+	if err := tw.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close tar writer: %w", err)
 	}
 
 	return buf.Bytes(), nil
