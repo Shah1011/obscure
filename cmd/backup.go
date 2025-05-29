@@ -109,7 +109,7 @@ var backupCmd = &cobra.Command{
 			providerDisplayName = provider // fallback to original if not found
 		}
 
-		fmt.Printf("☁️  Using provider: %s\n", providerDisplayName)
+		fmt.Printf("☁️ Using provider: %s\n", providerDisplayName)
 
 		username, err := config.GetSessionUsername()
 		if err != nil || username == "" {
@@ -137,7 +137,12 @@ var backupCmd = &cobra.Command{
 			}
 		}()
 
-		keyPath := fmt.Sprintf("backups/%s/%s/%s_backup.obscure", username, tag, version)
+		// Construct keyPath with correct extension
+		extension := "obscure"
+		if directUpload {
+			extension = "tar"
+		}
+		keyPath := fmt.Sprintf("backups/%s/%s/%s_backup.%s", username, tag, version, extension)
 
 		switch provider {
 		case "s3":
@@ -180,10 +185,6 @@ var backupCmd = &cobra.Command{
 
 			elapsed := time.Since(startTime)
 			sizeMB := float64(len(dataToUpload)) / (1024 * 1024)
-			extension := "obscure"
-			if directUpload {
-				extension = "tar"
-			}
 			fmt.Printf("✅ Uploaded to S3: backups/%s/%s/%s_backup.%s\n", username, tag, version, extension)
 			fmt.Printf("📦 File size: %.2f MB | ⏱ Time taken: %.2fs\n", sizeMB, elapsed.Seconds())
 
@@ -228,10 +229,6 @@ var backupCmd = &cobra.Command{
 
 			elapsed := time.Since(startTime)
 			sizeMB := float64(len(dataToUpload)) / (1024 * 1024)
-			extension := "obscure"
-			if directUpload {
-				extension = "tar"
-			}
 			fmt.Printf("✅ Uploaded to GCS: backups/%s/%s/%s_backup.%s\n", username, tag, version, extension)
 			fmt.Printf("📦 File size: %.2f MB | ⏱ Time taken: %.2fs\n", sizeMB, elapsed.Seconds())
 

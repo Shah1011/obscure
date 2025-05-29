@@ -75,7 +75,7 @@ func deleteFromGCS(key string) {
 		fmt.Println("❌ Failed to delete:", err)
 		return
 	}
-	fmt.Println("🗑️  Deleted:", key)
+	fmt.Println("🗑️ Deleted:", key)
 }
 
 func deleteFromS3(key string) {
@@ -95,7 +95,7 @@ func deleteFromS3(key string) {
 		fmt.Println("❌ Failed to delete:", err)
 		return
 	}
-	fmt.Println("🗑️  Deleted:", key)
+	fmt.Println("🗑️ Deleted:", key)
 }
 
 func containsSlash(s string) bool {

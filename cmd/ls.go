@@ -68,6 +68,7 @@ func listFromGCS(prefix string) {
 	bucketName := "obscure-open"
 	it := client.Bucket(bucketName).Objects(ctx, &storage.Query{Prefix: prefix})
 	files := []string{}
+	metadata := make(map[string]bool) // Store is_direct metadata for each file
 
 	for {
 		obj, err := it.Next()
@@ -79,9 +80,12 @@ func listFromGCS(prefix string) {
 			return
 		}
 		files = append(files, obj.Name)
+		// Check if this is a direct backup
+		isDirect := obj.Metadata != nil && obj.Metadata["is_direct"] == "true"
+		metadata[obj.Name] = isDirect
 	}
 
-	printBackups(files, "gcs")
+	printBackups(files, "gcs", metadata)
 }
 
 func listFromS3(prefix string) {
@@ -102,6 +106,7 @@ func listFromS3(prefix string) {
 
 	paginator := s3sdk.NewListObjectsV2Paginator(client, input)
 	files := []string{}
+	metadata := make(map[string]bool) // Store is_direct metadata for each file
 
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
@@ -111,13 +116,23 @@ func listFromS3(prefix string) {
 		}
 		for _, obj := range page.Contents {
 			files = append(files, *obj.Key)
+			// Get object metadata to check if it's a direct backup
+			headInput := &s3sdk.HeadObjectInput{
+				Bucket: aws.String(bucketName),
+				Key:    obj.Key,
+			}
+			headOutput, err := client.HeadObject(ctx, headInput)
+			if err == nil && headOutput.Metadata != nil {
+				isDirect := headOutput.Metadata["is_direct"] == "true"
+				metadata[*obj.Key] = isDirect
+			}
 		}
 	}
 
-	printBackups(files, "s3")
+	printBackups(files, "s3", metadata)
 }
 
-func printBackups(files []string, provider string) {
+func printBackups(files []string, provider string, metadata map[string]bool) {
 	if len(files) == 0 {
 		fmt.Println("📦 No backups found.")
 		return
@@ -136,14 +151,36 @@ func printBackups(files []string, provider string) {
 				continue // expect: username/tag/version
 			}
 			tag = parts[len(parts)-2]
-			versionFile = parts[len(parts)-1]
+			// Get the base filename without extension
+			baseName := parts[len(parts)-1]
+			// Check if this is a direct backup
+			isDirect := metadata[file]
+			// Replace extension based on is_direct metadata
+			if isDirect {
+				// Remove any existing extension and add .tar
+				baseName = strings.TrimSuffix(baseName, ".obscure")
+				baseName = strings.TrimSuffix(baseName, ".tar")
+				baseName = baseName + ".tar"
+			}
+			versionFile = baseName
 
 		case "s3":
 			if len(parts) < 4 {
 				continue // expect: backups/username/tag/version
 			}
 			tag = parts[len(parts)-2]
-			versionFile = parts[len(parts)-1]
+			// Get the base filename without extension
+			baseName := parts[len(parts)-1]
+			// Check if this is a direct backup
+			isDirect := metadata[file]
+			// Replace extension based on is_direct metadata
+			if isDirect {
+				// Remove any existing extension and add .tar
+				baseName = strings.TrimSuffix(baseName, ".obscure")
+				baseName = strings.TrimSuffix(baseName, ".tar")
+				baseName = baseName + ".tar"
+			}
+			versionFile = baseName
 
 		default:
 			continue // unknown provider
