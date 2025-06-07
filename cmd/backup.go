@@ -1,254 +1,432 @@
 package cmd
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/shah1011/obscure/internal/config"
-	"github.com/shah1011/obscure/utils"
+	"archive/tar"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	cfg "github.com/shah1011/obscure/internal/config"
+	strg "github.com/shah1011/obscure/internal/storage"
+	"github.com/shah1011/obscure/utils"
 	"github.com/spf13/cobra"
 )
 
-var tag string
-var version string
-var bucketName = "obscure-open"
-var directUpload bool
+// CreateBackupFile creates a backup file from the given path
+func CreateBackupFile(path string) (*os.File, error) {
+	// Create a temporary file
+	tmpFile, err := os.CreateTemp("", "obscure-backup-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp file: %w", err)
+	}
+
+	// Check if path is a directory
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return nil, fmt.Errorf("failed to get file info: %w", err)
+	}
+
+	if fileInfo.IsDir() {
+		// Create a tar archive for directories
+		tw := tar.NewWriter(tmpFile)
+		defer tw.Close()
+
+		// Walk through the directory
+		err = filepath.Walk(path, func(file string, fi os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			// Skip the root directory itself
+			if file == path {
+				return nil
+			}
+
+			// Create header
+			header, err := tar.FileInfoHeader(fi, file)
+			if err != nil {
+				return err
+			}
+
+			// Get relative path
+			relPath, err := filepath.Rel(path, file)
+			if err != nil {
+				return err
+			}
+			header.Name = relPath
+
+			// Write header
+			if err := tw.WriteHeader(header); err != nil {
+				return err
+			}
+
+			// If it's a regular file, write its contents
+			if !fi.IsDir() {
+				data, err := os.Open(file)
+				if err != nil {
+					return err
+				}
+				defer data.Close()
+
+				if _, err := io.Copy(tw, data); err != nil {
+					return err
+				}
+			}
+
+			return nil
+		})
+
+		if err != nil {
+			tmpFile.Close()
+			os.Remove(tmpFile.Name())
+			return nil, fmt.Errorf("failed to create tar archive: %w", err)
+		}
+
+		// Close the tar writer
+		if err := tw.Close(); err != nil {
+			tmpFile.Close()
+			os.Remove(tmpFile.Name())
+			return nil, fmt.Errorf("failed to close tar writer: %w", err)
+		}
+	} else {
+		// For regular files, just copy the contents
+		srcFile, err := os.Open(path)
+		if err != nil {
+			tmpFile.Close()
+			os.Remove(tmpFile.Name())
+			return nil, fmt.Errorf("failed to open source file: %w", err)
+		}
+		defer srcFile.Close()
+
+		if _, err := io.Copy(tmpFile, srcFile); err != nil {
+			tmpFile.Close()
+			os.Remove(tmpFile.Name())
+			return nil, fmt.Errorf("failed to copy file contents: %w", err)
+		}
+	}
+
+	// Reset file pointer to beginning
+	if _, err := tmpFile.Seek(0, 0); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return nil, fmt.Errorf("failed to seek to beginning: %w", err)
+	}
+
+	return tmpFile, nil
+}
+
+// FormatBytes formats a byte size into a human-readable string
+func FormatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+func uploadWithSpinner(ctx context.Context, reader io.Reader, size int64, uploadFn func(io.Reader) error) error {
+	var wg sync.WaitGroup
+	done := make(chan struct{})
+	wg.Add(1)
+
+	// Start spinner in a goroutine
+	go func() {
+		spinnerRunes := []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}
+		defer wg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				for _, r := range spinnerRunes {
+					fmt.Printf("\r🔹 Uploading to cloud... %s", string(r))
+					time.Sleep(100 * time.Millisecond)
+				}
+			}
+		}
+	}()
+
+	// Perform upload
+	err := uploadFn(reader)
+
+	// Stop spinner
+	close(done)
+	wg.Wait()
+	fmt.Print("\r") // Clear spinner line
+
+	return err
+}
 
 var backupCmd = &cobra.Command{
-	Use:   "backup [directory]",
-	Args:  cobra.ExactArgs(1),
-	Short: "Back up and encrypt a directory, then upload to selected cloud",
+	Use:   "backup <path>",
+	Short: "Back up a file or directory to your cloud storage",
+	Long: `Back up a file or directory to your cloud storage. You can specify the backup tag and version using flags:
+  --tag: Tag for the backup (e.g., 'unit' or 'prod')
+  --version: Version for the backup (e.g., '2.1' or '1.0')
+  --direct: Create an unencrypted tar backup (default is encrypted .obscure format)`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		inputDir := args[0]
+		// Get session info
+		if _, err := cfg.GetSessionEmail(); err != nil {
+			fmt.Println("❌ Not logged in. Please run 'obscure login' first.")
+			return
+		}
 
-		// Check if user is logged in
-		_, err := config.GetSessionEmail()
+		// Check if direct backup is requested
+		isDirect, _ := cmd.Flags().GetBool("direct")
+
+		username, err := cfg.GetSessionUsername()
 		if err != nil {
-			fmt.Println("❌ You are not logged in. Please run `obscure login`")
+			fmt.Println("❌ Failed to get username from session:", err)
 			return
 		}
 
-		token, err := config.GetSessionToken()
-		if err != nil || token == "" {
-			fmt.Println("❌ Could not read auth token. Please log in first using `obscure login`.")
+		// Get provider info
+		providerKey, err := cfg.GetSessionProvider()
+		if err != nil || providerKey == "" {
+			providerKey, err = cfg.GetUserDefaultProvider()
+			if err != nil || providerKey == "" {
+				fmt.Println("⚠️  No cloud provider is configured.")
+				return
+			}
+		}
+
+		// Get provider config
+		providers, err := cfg.LoadUserProviders()
+		if err != nil {
+			fmt.Printf("❌ Failed to load provider configuration: %v\n", err)
 			return
 		}
 
-		var dataToUpload []byte
-		if !directUpload {
-			fmt.Println("⚠️ IMPORTANT: Save this password in a secure location. You will need it to restore the backup or else the backup will be lost forever!")
-			password, err := utils.PromptPassword("🔐 Enter password for encryption: ")
-			if err != nil {
-				fmt.Println("❌ Failed to read password:", err)
+		config, ok := providers.Providers[providerKey]
+		if !ok || !config.Enabled {
+			fmt.Printf("❌ Provider %s is not configured or disabled\n", strings.ToUpper(providerKey))
+			return
+		}
+
+		// Get backup path and tag
+		backupPath := args[0]
+
+		// Get tag from flag or prompt
+		tag, err := cmd.Flags().GetString("tag")
+		if err != nil || tag == "" {
+			tag, err = utils.PromptLine("🏷️  Enter a tag for this backup (e.g., 'unit' or 'prod'): ")
+			if err != nil || strings.TrimSpace(tag) == "" {
+				fmt.Println("❌ Invalid tag.")
 				return
 			}
-			confirmPassword, err := utils.PromptPassword("🔐 Re-enter password to confirm: ")
-			if err != nil {
-				fmt.Println("❌ Failed to read password confirmation:", err)
+		}
+
+		// Get version from flag or generate
+		version, err := cmd.Flags().GetString("version")
+		if err != nil || version == "" {
+			version = time.Now().Format("2006.01.02-15.04.05")
+		}
+
+		// Create backup
+		fmt.Printf("📦 Creating backup of %s...\n", backupPath)
+		start := time.Now()
+
+		// Create backup file
+		backupFile, err := CreateBackupFile(backupPath)
+		if err != nil {
+			fmt.Printf("❌ Failed to create backup file: %v\n", err)
+			return
+		}
+		defer os.Remove(backupFile.Name())
+		defer backupFile.Close()
+
+		// Get file size
+		fileInfo, err := backupFile.Stat()
+		if err != nil {
+			fmt.Printf("❌ Failed to get file info: %v\n", err)
+			return
+		}
+		fileSize := fileInfo.Size()
+
+		// Prepare the backup data
+		var uploadReader io.Reader
+		var uploadSize int64
+		var extension string
+
+		if isDirect {
+			// For direct backups, use the tar file as is
+			uploadReader = backupFile
+			uploadSize = fileSize
+			extension = "tar"
+		} else {
+			// For encrypted backups, prompt for password and encrypt
+			fmt.Println("⚠️  WARNING: Keep your encryption password safe. If you lose it, you won't be able to recover your backup!")
+
+			password, err := utils.PromptPassword("🔐 Enter encryption password: ")
+			if err != nil || strings.TrimSpace(password) == "" {
+				fmt.Println("❌ Invalid or empty password.")
 				return
 			}
+
+			// Ask for password confirmation
+			confirmPassword, err := utils.PromptPassword("🔐 Confirm encryption password: ")
+			if err != nil || strings.TrimSpace(confirmPassword) == "" {
+				fmt.Println("❌ Invalid or empty confirmation password.")
+				return
+			}
+
 			if password != confirmPassword {
 				fmt.Println("❌ Passwords do not match. Please try again.")
 				return
 			}
-			fmt.Println("✅ Password securely confirmed.")
 
-			fmt.Println("🔹 Compressing directory:", inputDir)
-			zipBuffer, err := utils.CompressDirectoryToZstd(inputDir)
+			// Create a buffer to store encrypted data
+			var encryptedBuf bytes.Buffer
+
+			// Create encryption writer
+			encWriter, err := utils.EncryptStream(&encryptedBuf, password)
 			if err != nil {
-				fmt.Println("❌ Failed to zip directory:", err)
+				fmt.Printf("❌ Failed to initialize encryption: %v\n", err)
 				return
 			}
-			fmt.Println("✅ Compressed in-memory.")
 
-			fmt.Println("🔹 Encrypting data...")
-			encryptedData, err := utils.EncryptBuffer(zipBuffer, password)
-			if err != nil {
-				fmt.Println("❌ Failed to encrypt data:", err)
+			// Create compression writer
+			compWriter := utils.NewCompressWriter(encWriter)
+			defer compWriter.Close()
+
+			// Copy data through compression and encryption
+			if _, err := io.Copy(compWriter, backupFile); err != nil {
+				fmt.Printf("❌ Failed to compress and encrypt: %v\n", err)
 				return
 			}
-			fmt.Println("✅ Data encrypted in-memory.")
-			dataToUpload = encryptedData.Bytes()
-		} else {
-			// Direct upload - just read the directory as is
-			fmt.Println("🔹 Reading directory for direct upload:", inputDir)
-			dirData, err := utils.ReadDirectoryAsBytes(inputDir)
-			if err != nil {
-				fmt.Println("❌ Failed to read directory:", err)
+
+			// Close writers in correct order
+			if err := compWriter.Close(); err != nil {
+				fmt.Printf("❌ Failed to close compression: %v\n", err)
 				return
 			}
-			dataToUpload = dirData
-		}
-
-		// ✅ Fixed: Try to get provider from session first, then fallback to user default
-		var provider string
-
-		// First try to get the session provider (current active provider)
-		provider, err = config.GetSessionProvider()
-		if err != nil || provider == "" {
-			// Fallback to user default provider
-			provider, err = config.GetUserDefaultProvider()
-			if err != nil || provider == "" {
-				fmt.Println("❌ No default cloud provider found for user. Please set one using `obscure switch-provider`.")
+			if err := encWriter.Close(); err != nil {
+				fmt.Printf("❌ Failed to finalize encryption: %v\n", err)
 				return
 			}
+
+			uploadReader = bytes.NewReader(encryptedBuf.Bytes())
+			uploadSize = int64(encryptedBuf.Len())
+			extension = "obscure"
 		}
 
-		// Map provider keys to friendly names
-		providerNames := map[string]string{
-			"s3":  "Amazon S3",
-			"gcs": "Google Cloud Storage",
-		}
+		// Upload to cloud storage
+		filename := fmt.Sprintf("%s_%s.%s", version, tag, extension)
+		key := fmt.Sprintf("backups/%s/%s/%s", username, tag, filename)
 
-		providerDisplayName := providerNames[provider]
-		if providerDisplayName == "" {
-			providerDisplayName = provider // fallback to original if not found
-		}
+		// Get bucket name from provider config
+		bucket := config.Bucket
 
-		fmt.Printf("☁️ Using provider: %s\n", providerDisplayName)
-
-		username, err := config.GetSessionUsername()
-		if err != nil || username == "" {
-			fmt.Println("❌ Failed to get username from session. Please log in again.")
-			return
-		}
-
-		done := make(chan bool)
-		var wg sync.WaitGroup
-		wg.Add(1)
-
-		go func() {
-			spinnerRunes := []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}
-			defer wg.Done()
-			for {
-				select {
-				case <-done:
-					return
-				default:
-					for _, r := range spinnerRunes {
-						fmt.Printf("\r🔹 Uploading to cloud... %s", string(r))
-						time.Sleep(100 * time.Millisecond)
-					}
-				}
-			}
-		}()
-
-		// Construct keyPath with correct extension
-		extension := "obscure"
-		if directUpload {
-			extension = "tar"
-		}
-		keyPath := fmt.Sprintf("backups/%s/%s/%s_backup.%s", username, tag, version, extension)
-
-		switch provider {
+		switch providerKey {
 		case "s3":
-			exists, err := utils.CheckIfS3ObjectExists(bucketName, keyPath)
+			// Initialize S3 client
+			ctx := context.Background()
+			awsCfg, err := strg.NewAWSClient(ctx, "s3")
 			if err != nil {
-				done <- true
-				wg.Wait()
-				fmt.Printf("\n❌ Failed to check existing backups: %v\n", err)
-				return
-			}
-			if exists {
-				done <- true
-				wg.Wait()
-				fmt.Printf("\n❌ A backup with tag '%s' and version '%s' already exists in S3.\n", tag, version)
+				fmt.Printf("❌ Failed to initialize AWS client: %v\n", err)
 				return
 			}
 
-			startTime := time.Now()
+			client := s3.NewFromConfig(*awsCfg)
 
-			err = utils.UploadToS3Backend(
-				dataToUpload,
-				username,
-				tag,
-				version,
-				"http://localhost:8080/s3-upload",
-				token,
-				directUpload,
-			)
-			done <- true
-			wg.Wait()
-			fmt.Print("\r\033[K")
+			// Check if object exists
+			_, err = client.HeadObject(ctx, &s3.HeadObjectInput{
+				Bucket: aws.String(bucket),
+				Key:    aws.String(key),
+			})
+			if err == nil {
+				fmt.Println("❌ A backup with this name already exists")
+				return
+			}
+
+			// Upload to S3 with spinner
+			err = uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+				_, err := client.PutObject(ctx, &s3.PutObjectInput{
+					Bucket: aws.String(bucket),
+					Key:    aws.String(key),
+					Body:   reader,
+					Metadata: map[string]string{
+						"username":  username,
+						"tag":       tag,
+						"version":   version,
+						"is_direct": fmt.Sprintf("%v", isDirect),
+					},
+				})
+				return err
+			})
 			if err != nil {
-				if strings.Contains(err.Error(), "session expired") {
-					fmt.Println("❌", err.Error())
-					return
-				}
-				fmt.Printf("❌ S3 Upload via backend failed: %v\n", err)
+				fmt.Printf("\n❌ Failed to upload to S3: %v\n", err)
 				return
 			}
-
-			elapsed := time.Since(startTime)
-			sizeMB := float64(len(dataToUpload)) / (1024 * 1024)
-			fmt.Printf("✅ Uploaded to S3: backups/%s/%s/%s_backup.%s\n", username, tag, version, extension)
-			fmt.Printf("📦 File size: %.2f MB | ⏱ Time taken: %.2fs\n", sizeMB, elapsed.Seconds())
 
 		case "gcs":
-			exists, err := utils.CheckIfGCSObjectExists(bucketName, keyPath)
+			// Initialize GCS client
+			ctx := context.Background()
+			client, err := strg.NewGCSClient(ctx, "gcs")
 			if err != nil {
-				done <- true
-				wg.Wait()
-				fmt.Printf("❌ Failed to check GCS: %v\n", err)
+				fmt.Printf("❌ Failed to initialize GCS client: %v\n", err)
 				return
 			}
-			if exists {
-				done <- true
-				wg.Wait()
-				fmt.Printf("❌ A backup with tag '%s' and version '%s' already exists in GCS.\n", tag, version)
+			defer client.Close()
+
+			// Check if object exists
+			_, err = client.Bucket(bucket).Object(key).Attrs(ctx)
+			if err == nil {
+				fmt.Println("❌ A backup with this name already exists")
 				return
 			}
 
-			startTime := time.Now()
-
-			err = utils.UploadToGCSBackend(
-				dataToUpload,
-				username,
-				tag,
-				version,
-				"http://localhost:8080/gcs-upload",
-				token,
-				directUpload,
-			)
-
-			done <- true
-			wg.Wait()
-			fmt.Print("\r\033[K")
-			if err != nil {
-				if strings.Contains(err.Error(), "session expired") {
-					fmt.Println("❌", err.Error())
-					return
+			// Upload to GCS with spinner
+			err = uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+				writer := client.Bucket(bucket).Object(key).NewWriter(ctx)
+				writer.Metadata = map[string]string{
+					"username":  username,
+					"tag":       tag,
+					"version":   version,
+					"is_direct": fmt.Sprintf("%v", isDirect),
 				}
-				fmt.Fprintln(os.Stderr, err)
+				if _, err := io.Copy(writer, reader); err != nil {
+					return err
+				}
+				return writer.Close()
+			})
+			if err != nil {
+				fmt.Printf("\n❌ Failed to upload to GCS: %v\n", err)
 				return
 			}
-
-			elapsed := time.Since(startTime)
-			sizeMB := float64(len(dataToUpload)) / (1024 * 1024)
-			fmt.Printf("✅ Uploaded to GCS: backups/%s/%s/%s_backup.%s\n", username, tag, version, extension)
-			fmt.Printf("📦 File size: %.2f MB | ⏱ Time taken: %.2fs\n", sizeMB, elapsed.Seconds())
 
 		default:
-			done <- true
-			wg.Wait()
-			fmt.Println("❌ Unknown provider. Supported: s3, gcs.")
+			fmt.Printf("❌ Unsupported provider: %s\n", providerKey)
 			return
 		}
 
-		fmt.Println("🎉 Backup completed successfully!")
+		elapsed := time.Since(start)
+		fmt.Printf("✅ Backup completed in %s\n", elapsed.Round(time.Millisecond))
+		fmt.Printf("📊 File size: %s\n", FormatBytes(uploadSize))
+		fmt.Printf("🔗 Backup path: %s\n", key)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(backupCmd)
-	backupCmd.Flags().StringVarP(&tag, "tag", "t", "", "Tag for the backup")
-	backupCmd.Flags().StringVarP(&version, "version", "v", "", "Version for the backup")
-	backupCmd.Flags().String("user", "", "Email to identify backup owner (optional if logged in)")
-	backupCmd.Flags().BoolVarP(&directUpload, "direct", "d", false, "Direct upload without encryption or compression")
-	backupCmd.MarkFlagRequired("tag")
-	backupCmd.MarkFlagRequired("version")
+	backupCmd.Flags().StringP("tag", "t", "", "Tag for the backup (e.g., 'unit' or 'prod')")
+	backupCmd.Flags().StringP("version", "v", "", "Version for the backup (e.g., '2.1' or '1.0')")
+	backupCmd.Flags().BoolP("direct", "d", false, "Create an unencrypted tar backup (default is encrypted .obscure format)")
 }

@@ -1,7 +1,6 @@
 package config
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"path/filepath"
 
 	"github.com/shah1011/obscure/internal/auth"
-	firebase "github.com/shah1011/obscure/internal/firebase"
 	"gopkg.in/yaml.v3"
 )
 
@@ -218,28 +216,28 @@ func GetUsernameByEmail(email string) (string, error) {
 }
 
 func GetUserDataByEmail(email string) (*UserData, error) {
-	client, err := firebase.GetFirestoreClient()
+	filePath := getUsersFilePath()
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, err
 	}
-	defer client.Close()
-
-	// Firestore does not index email by default, so you might store email as a field
-	// and query by it in the "users" collection.
-
-	iter := client.Collection("users").Where("email", "==", email).Documents(context.Background())
-	docs, err := iter.GetAll()
-	if err != nil || len(docs) == 0 {
-		return nil, fmt.Errorf("user not found")
-	}
-
-	var userData UserData
-	err = docs[0].DataTo(&userData)
+	var users map[string]auth.User
+	err = json.Unmarshal(data, &users)
 	if err != nil {
 		return nil, err
 	}
-
-	return &userData, nil
+	for _, user := range users {
+		if user.Email == email {
+			// Get provider from local config
+			provider, _ := GetUserDefaultProvider()
+			return &UserData{
+				Username: user.Username,
+				Email:    user.Email,
+				Provider: provider,
+			}, nil
+		}
+	}
+	return nil, fmt.Errorf("user not found")
 }
 
 type UserData struct {

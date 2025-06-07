@@ -34,7 +34,7 @@ var whichProviderCmd = &cobra.Command{
 			return
 		}
 
-		fmt.Println("☁️", name)
+		fmt.Println("☁️ ", name)
 	},
 }
 

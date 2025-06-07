@@ -2,7 +2,9 @@
 package utils
 
 import (
+	"bufio"
 	"fmt"
+	"os"
 	"strings"
 	"syscall"
 
@@ -50,8 +52,11 @@ func PromptEmail(prompt string) (string, error) {
 // PromptLine prompts for a single line of input
 func PromptLine(prompt string) (string, error) {
 	fmt.Print(prompt)
-	var input string
-	fmt.Scanln(&input)
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
 	return strings.TrimSpace(input), nil
 }
 

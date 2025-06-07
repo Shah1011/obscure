@@ -5,9 +5,11 @@ serviceAccountKey.json
 *.pem
 credentials/
 .env
-
-# Binary files
-*.exe
+.env.*
+.obscure/
+config.yaml
+token
+providers.json
 
 # Ensure .gitignore itself is not ignored
 !.gitignore
@@ -27,4 +29,35 @@ credentials/
 # OS specific
 .DS_Store
 Thumbs.db
+
+# IDE specific
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove if you check in your vendor directory)
+vendor/
+
+# Go workspace file
+go.work
+
+# Obscure specific
+.obscure/
+restored_*/
+obscure-backend/
+firebaseServiceAccountKey.json
 

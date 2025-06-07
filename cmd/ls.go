@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"cloud.google.com/go/storage"
@@ -12,6 +13,7 @@ import (
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/fatih/color"
 	cfg "github.com/shah1011/obscure/internal/config"
+	strg "github.com/shah1011/obscure/internal/storage"
 	"github.com/spf13/cobra"
 	"google.golang.org/api/iterator"
 )
@@ -58,15 +60,21 @@ func init() {
 
 func listFromGCS(prefix string) {
 	ctx := context.Background()
-	client, err := storage.NewClient(ctx)
+	client, err := strg.NewGCSClient(ctx, "gcs")
 	if err != nil {
 		fmt.Println("❌ Error initializing GCS client:", err)
 		return
 	}
 	defer client.Close()
 
-	bucketName := "obscure-open"
-	it := client.Bucket(bucketName).Objects(ctx, &storage.Query{Prefix: prefix})
+	// Get bucket name from provider config
+	bucket, err := strg.GetBucketName("gcs")
+	if err != nil {
+		fmt.Printf("❌ Failed to get bucket name: %v\n", err)
+		return
+	}
+
+	it := client.Bucket(bucket).Objects(ctx, &storage.Query{Prefix: prefix})
 	files := []string{}
 	metadata := make(map[string]bool) // Store is_direct metadata for each file
 
@@ -85,22 +93,28 @@ func listFromGCS(prefix string) {
 		metadata[obj.Name] = isDirect
 	}
 
-	printBackups(files, "gcs", metadata)
+	printBackups(files, metadata)
 }
 
 func listFromS3(prefix string) {
 	ctx := context.Background()
-	awsCfg, err := configAws()
+	awsCfg, err := strg.NewAWSClient(ctx, "s3")
 	if err != nil {
 		fmt.Println("❌ Failed to load AWS config:", err)
 		return
 	}
 
-	client := s3sdk.NewFromConfig(awsCfg)
+	client := s3sdk.NewFromConfig(*awsCfg)
 
-	bucketName := "obscure-open"
+	// Get bucket name from provider config
+	bucket, err := strg.GetBucketName("s3")
+	if err != nil {
+		fmt.Printf("❌ Failed to get bucket name: %v\n", err)
+		return
+	}
+
 	input := &s3sdk.ListObjectsV2Input{
-		Bucket: aws.String(bucketName),
+		Bucket: aws.String(bucket),
 		Prefix: aws.String(prefix),
 	}
 
@@ -115,24 +129,27 @@ func listFromS3(prefix string) {
 			return
 		}
 		for _, obj := range page.Contents {
-			files = append(files, *obj.Key)
 			// Get object metadata to check if it's a direct backup
 			headInput := &s3sdk.HeadObjectInput{
-				Bucket: aws.String(bucketName),
+				Bucket: aws.String(bucket),
 				Key:    obj.Key,
 			}
 			headOutput, err := client.HeadObject(ctx, headInput)
-			if err == nil && headOutput.Metadata != nil {
+			if err != nil {
+				continue
+			}
+			files = append(files, *obj.Key)
+			if headOutput.Metadata != nil {
 				isDirect := headOutput.Metadata["is_direct"] == "true"
 				metadata[*obj.Key] = isDirect
 			}
 		}
 	}
 
-	printBackups(files, "s3", metadata)
+	printBackups(files, metadata)
 }
 
-func printBackups(files []string, provider string, metadata map[string]bool) {
+func printBackups(files []string, metadata map[string]bool) {
 	if len(files) == 0 {
 		fmt.Println("📦 No backups found.")
 		return
@@ -142,51 +159,43 @@ func printBackups(files []string, provider string, metadata map[string]bool) {
 
 	for _, file := range files {
 		parts := strings.Split(file, "/")
-
-		var tag, versionFile string
-
-		switch provider {
-		case "gcs":
-			if len(parts) < 3 {
-				continue // expect: username/tag/version
-			}
-			tag = parts[len(parts)-2]
-			// Get the base filename without extension
-			baseName := parts[len(parts)-1]
-			// Check if this is a direct backup
-			isDirect := metadata[file]
-			// Replace extension based on is_direct metadata
-			if isDirect {
-				// Remove any existing extension and add .tar
-				baseName = strings.TrimSuffix(baseName, ".obscure")
-				baseName = strings.TrimSuffix(baseName, ".tar")
-				baseName = baseName + ".tar"
-			}
-			versionFile = baseName
-
-		case "s3":
-			if len(parts) < 4 {
-				continue // expect: backups/username/tag/version
-			}
-			tag = parts[len(parts)-2]
-			// Get the base filename without extension
-			baseName := parts[len(parts)-1]
-			// Check if this is a direct backup
-			isDirect := metadata[file]
-			// Replace extension based on is_direct metadata
-			if isDirect {
-				// Remove any existing extension and add .tar
-				baseName = strings.TrimSuffix(baseName, ".obscure")
-				baseName = strings.TrimSuffix(baseName, ".tar")
-				baseName = baseName + ".tar"
-			}
-			versionFile = baseName
-
-		default:
-			continue // unknown provider
+		if len(parts) < 4 { // expect: backups/username/tag/filename
+			continue
 		}
 
-		grouped[tag] = append(grouped[tag], versionFile)
+		// Get the tag and filename
+		tag := parts[len(parts)-2] // Get tag from path
+		filename := parts[len(parts)-1]
+
+		// Find the last dot to separate extension
+		lastDotIndex := strings.LastIndex(filename, ".")
+		if lastDotIndex == -1 {
+			continue
+		}
+
+		// Split into name and extension
+		name := filename[:lastDotIndex]
+		extension := filename[lastDotIndex+1:]
+
+		// Get the version number from the filename
+		// It could be in format: 2.1_26492030 or 2.6_testdata
+		nameParts := strings.Split(name, "_")
+		if len(nameParts) < 1 {
+			continue
+		}
+
+		version := nameParts[0] // Get the version number (e.g., "2.1" or "2.6")
+
+		// Check if this is a direct backup from metadata
+		isDirect := metadata[file]
+		// Only change extension if metadata indicates it's a direct backup
+		if isDirect {
+			extension = "tar"
+		}
+
+		// Format the version string to show version_tag.extension
+		versionStr := fmt.Sprintf("%s_%s.%s", version, tag, extension)
+		grouped[tag] = append(grouped[tag], versionStr)
 	}
 
 	greenBold := color.New(color.FgGreen, color.Bold).SprintFunc()
@@ -194,11 +203,17 @@ func printBackups(files []string, provider string, metadata map[string]bool) {
 
 	fmt.Println("📦 Available backups:")
 	for tag, versions := range grouped {
-		fmt.Printf("\n📁 Tag: %s\n", yellow(tag))
+		fmt.Printf("\n📁 %s\n", yellow(tag))
+		// Sort versions in reverse order (newest first)
+		sort.Slice(versions, func(i, j int) bool {
+			// Extract version numbers for comparison
+			vi := strings.Split(versions[i], "_")[0]
+			vj := strings.Split(versions[j], "_")[0]
+			return vi > vj
+		})
 		for _, v := range versions {
 			fmt.Printf("   - %s\n", greenBold(v))
 		}
-		fmt.Println()
 	}
 }
 

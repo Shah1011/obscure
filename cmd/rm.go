@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 	cfg "github.com/shah1011/obscure/internal/config"
+	strg "github.com/shah1011/obscure/internal/storage"
 	"github.com/spf13/cobra"
 )
 
@@ -44,13 +45,18 @@ var rmCmd = &cobra.Command{
 			return
 		}
 
+		key := fmt.Sprintf("backups/%s/%s", username, filename)
+		bucket, err := strg.GetBucketName(providerKey)
+		if err != nil {
+			fmt.Printf("❌ Failed to get bucket name: %v\n", err)
+			return
+		}
+
 		switch providerKey {
 		case "gcs":
-			key := fmt.Sprintf("backups/%s/%s", username, filename)
-			deleteFromGCS(key)
+			deleteFromGCS(bucket, key)
 		case "s3":
-			key := fmt.Sprintf("backups/%s/%s", username, filename)
-			deleteFromS3(key)
+			deleteFromS3(bucket, key)
 		default:
 			fmt.Println("❌ Unknown provider:", providerKey)
 		}
@@ -61,41 +67,66 @@ func init() {
 	rootCmd.AddCommand(rmCmd)
 }
 
-func deleteFromGCS(key string) {
+func deleteFromGCS(bucket, key string) {
 	ctx := context.Background()
-	client, err := storage.NewClient(ctx)
+	client, err := strg.NewGCSClient(ctx, "gcs")
 	if err != nil {
 		fmt.Println("❌ GCS client error:", err)
 		return
 	}
 	defer client.Close()
 
-	err = client.Bucket("obscure-open").Object(key).Delete(ctx)
+	// Check if object exists first
+	_, err = client.Bucket(bucket).Object(key).Attrs(ctx)
+	if err != nil {
+		if err == storage.ErrObjectNotExist {
+			fmt.Printf("❌ File does not exist: %s\n", key)
+		} else {
+			fmt.Println("❌ Failed to check file existence:", err)
+		}
+		return
+	}
+
+	err = client.Bucket(bucket).Object(key).Delete(ctx)
 	if err != nil {
 		fmt.Println("❌ Failed to delete:", err)
 		return
 	}
-	fmt.Println("🗑️ Deleted:", key)
+	fmt.Println("🗑️  Deleted:", key)
 }
 
-func deleteFromS3(key string) {
+func deleteFromS3(bucket, key string) {
 	ctx := context.Background()
-	cfg, err := configAws()
+	awsCfg, err := strg.NewAWSClient(ctx, "s3")
 	if err != nil {
 		fmt.Println("❌ AWS config error:", err)
 		return
 	}
-	client := s3sdk.NewFromConfig(cfg)
+	client := s3sdk.NewFromConfig(*awsCfg)
+
+	// Check if object exists first
+	_, err = client.HeadObject(ctx, &s3sdk.HeadObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "StatusCode: 404") {
+			fmt.Printf("❌ File does not exist: %s\n", key)
+		} else {
+			fmt.Println("❌ Failed to check file existence:", err)
+		}
+		return
+	}
 
 	_, err = client.DeleteObject(ctx, &s3sdk.DeleteObjectInput{
-		Bucket: aws.String("obscure-open"),
+		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
 	if err != nil {
 		fmt.Println("❌ Failed to delete:", err)
 		return
 	}
-	fmt.Println("🗑️ Deleted:", key)
+	fmt.Println("🗑️  Deleted:", key)
 }
 
 func containsSlash(s string) bool {

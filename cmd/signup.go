@@ -7,7 +7,7 @@ import (
 
 	"github.com/manifoldco/promptui"
 	"github.com/shah1011/obscure/internal/auth"
-	"github.com/shah1011/obscure/internal/config"
+	cfg "github.com/shah1011/obscure/internal/config"
 	"github.com/shah1011/obscure/internal/firebase"
 	"github.com/shah1011/obscure/utils"
 	"github.com/spf13/cobra"
@@ -66,7 +66,7 @@ var signupCmd = &cobra.Command{
 		underline := "\033[4m"
 		reset := "\033[0m"
 		prompt := promptui.Select{
-			Label: "☁️  Choose your default cloud provider:",
+			Label: "Select your default cloud provider",
 			Items: providers,
 			Templates: &promptui.SelectTemplates{
 				Label:    "{{ . }}",
@@ -79,16 +79,77 @@ var signupCmd = &cobra.Command{
 
 		idx, _, err := prompt.Run()
 		if err != nil {
-			fmt.Println("❌ Cloud selection failed:", err)
+			fmt.Println("❌ Provider selection cancelled")
 			return
 		}
 		provider := providerKeys[idx]
-		if err != nil || strings.TrimSpace(provider) == "" {
-			fmt.Println("❌ Invalid cloud provider selection.")
+
+		// Create provider config
+		config := &cfg.CloudProviderConfig{
+			Provider: provider,
+			Enabled:  true,
+		}
+
+		// Configure the selected provider
+		switch provider {
+		case "s3":
+			fmt.Println("\n🔧 Configure your AWS S3 storage:")
+			bucket, err := utils.PromptLine("Enter S3 bucket name: ")
+			if err != nil {
+				fmt.Println("❌ Invalid bucket name")
+				return
+			}
+			region, err := utils.PromptLine("Enter AWS region (e.g., us-east-1): ")
+			if err != nil {
+				fmt.Println("❌ Invalid region")
+				return
+			}
+			accessKey, err := utils.PromptLine("Enter AWS Access Key ID: ")
+			if err != nil {
+				fmt.Println("❌ Invalid access key")
+				return
+			}
+			secretKey, err := utils.PromptPassword("Enter AWS Secret Access Key: ")
+			if err != nil {
+				fmt.Println("❌ Invalid secret key")
+				return
+			}
+
+			config.Bucket = bucket
+			config.Region = region
+			config.AccessKeyID = accessKey
+			config.SecretAccessKey = secretKey
+
+		case "gcs":
+			fmt.Println("\n🔧 Configure your Google Cloud Storage:")
+			projectID, err := utils.PromptLine("Enter Google Cloud Project ID: ")
+			if err != nil {
+				fmt.Println("❌ Invalid project ID")
+				return
+			}
+			serviceAccountPath, err := utils.PromptLine("Enter path to service account key file: ")
+			if err != nil {
+				fmt.Println("❌ Invalid service account path")
+				return
+			}
+
+			// Verify service account file exists
+			if _, err := os.Stat(serviceAccountPath); os.IsNotExist(err) {
+				fmt.Println("❌ Service account file not found")
+				return
+			}
+
+			config.ProjectID = projectID
+			config.ServiceAccount = serviceAccountPath
+		}
+
+		// Save provider configuration locally
+		if err := cfg.AddProviderConfig(config); err != nil {
+			fmt.Printf("❌ Failed to save provider configuration: %v\n", err)
 			return
 		}
 
-		// Step 5: Send simulated verification code
+		// Step 5: Send verification code
 		code, err := auth.SendVerificationCode(email)
 		if err != nil {
 			fmt.Println("❌ Failed to send verification code:", err)
@@ -116,41 +177,52 @@ var signupCmd = &cobra.Command{
 			return
 		}
 
-		// Step 9: Save user data in Firestore
-		err = firebase.SaveUserData(userRecord.UID, username, provider)
+		// Step 9: Save user data in Firestore with provider info
+		providerConfig := map[string]interface{}{
+			"enabled": config.Enabled,
+			"type":    config.Provider,
+			"bucket":  config.Bucket,
+		}
+		if config.Provider == "s3" {
+			providerConfig["region"] = config.Region
+		} else if config.Provider == "gcs" {
+			providerConfig["projectId"] = config.ProjectID
+		}
+
+		err = firebase.SaveUserData(userRecord.UID, username, provider, providerConfig)
 		if err != nil {
 			fmt.Println("❌ Failed to save user data in Firestore:", err)
 			return
 		}
 
+		// Step 10: Login to get session token
 		idToken, err := firebase.FirebaseLogin(email, password, os.Getenv("FIREBASE_API_KEY"))
 		if err != nil {
 			fmt.Println("❌ Login failed after signup:", err)
 			return
 		}
 
-		// Save token locally
-		if err := config.SetSessionToken(idToken); err != nil {
-			fmt.Println("⚠️  Signup successful but failed to save session token:", err)
-		}
-
-		fmt.Println("✅ Signup complete. You are now registered.")
-
-		// Step 10: Save session details locally
-		if err := config.SetSessionEmail(email); err != nil {
+		// Save session details locally
+		if err := cfg.SetSessionEmail(email); err != nil {
 			fmt.Println("⚠️  Signup successful but failed to save session:", err)
 			return
 		}
-		if err := config.SetSessionUsername(username); err != nil {
+		if err := cfg.SetSessionUsername(username); err != nil {
 			fmt.Println("⚠️  Signup successful but failed to save session username:", err)
 			return
 		}
-		if err := config.SetUserDefaultProvider(provider); err != nil {
+		if err := cfg.SetSessionToken(idToken); err != nil {
+			fmt.Println("⚠️  Signup successful but failed to save session token:", err)
+			return
+		}
+		if err := cfg.SetUserDefaultProvider(provider); err != nil {
 			fmt.Println("⚠️  Signup successful but failed to save default provider:", err)
 		}
-		if err := config.SetSessionProvider(provider); err != nil {
+		if err := cfg.SetSessionProvider(provider); err != nil {
 			fmt.Println("⚠️  Signup successful but failed to set active provider:", err)
 		}
+
+		fmt.Println("✅ Signup complete. You are now registered.")
 	},
 }
 

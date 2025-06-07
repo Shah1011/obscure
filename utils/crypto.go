@@ -7,7 +7,8 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
-	"io/ioutil"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 func EncryptBuffer(plainBuf *bytes.Buffer, password string) (*bytes.Buffer, error) {
@@ -67,13 +68,7 @@ func DecryptStream(encStream io.Reader, password string) (io.Reader, error) {
 		return nil, fmt.Errorf("failed to read nonce: %w", err)
 	}
 
-	// Read remaining ciphertext from stream
-	ciphertext, err := ioutil.ReadAll(encStream)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read ciphertext: %w", err)
-	}
-
-	// Decrypt
+	// Create cipher
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AES cipher: %w", err)
@@ -84,11 +79,97 @@ func DecryptStream(encStream io.Reader, password string) (io.Reader, error) {
 		return nil, fmt.Errorf("failed to create GCM cipher: %w", err)
 	}
 
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	// Read all ciphertext
+	var ciphertextBuf bytes.Buffer
+	if _, err := io.Copy(&ciphertextBuf, encStream); err != nil {
+		return nil, fmt.Errorf("failed to read ciphertext: %w", err)
+	}
+
+	// Decrypt
+	plaintext, err := gcm.Open(nil, nonce, ciphertextBuf.Bytes(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("decryption failed: %w", err)
 	}
 
 	// Return decrypted bytes as io.Reader
 	return bytes.NewReader(plaintext), nil
+}
+
+// EncryptStream creates a writer that encrypts data using AES-GCM
+func EncryptStream(w io.Writer, password string) (io.WriteCloser, error) {
+	salt, err := GenerateSalt()
+	if err != nil {
+		return nil, err
+	}
+
+	// Write salt to output
+	if _, err := w.Write(salt); err != nil {
+		return nil, fmt.Errorf("failed to write salt: %w", err)
+	}
+
+	key, err := DeriveKey(password, salt)
+	if err != nil {
+		return nil, err
+	}
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+
+	// Write nonce to output
+	if _, err := w.Write(nonce); err != nil {
+		return nil, fmt.Errorf("failed to write nonce: %w", err)
+	}
+
+	// Create a buffer to store all plaintext
+	var plaintextBuf bytes.Buffer
+
+	return &encryptWriter{
+		writer:       w,
+		gcm:          gcm,
+		nonce:        nonce,
+		plaintextBuf: &plaintextBuf,
+	}, nil
+}
+
+type encryptWriter struct {
+	writer       io.Writer
+	gcm          cipher.AEAD
+	nonce        []byte
+	plaintextBuf *bytes.Buffer
+}
+
+func (w *encryptWriter) Write(p []byte) (int, error) {
+	// Write to plaintext buffer
+	n, err := w.plaintextBuf.Write(p)
+	if err != nil {
+		return n, err
+	}
+	return n, nil
+}
+
+func (w *encryptWriter) Close() error {
+	// Encrypt the entire plaintext at once
+	ciphertext := w.gcm.Seal(nil, w.nonce, w.plaintextBuf.Bytes(), nil)
+
+	// Write the ciphertext
+	_, err := w.writer.Write(ciphertext)
+	return err
+}
+
+// NewCompressWriter creates a zstd compression writer
+func NewCompressWriter(w io.Writer) io.WriteCloser {
+	encoder, _ := zstd.NewWriter(w)
+	return encoder
 }
