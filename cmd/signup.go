@@ -178,18 +178,7 @@ var signupCmd = &cobra.Command{
 		}
 
 		// Step 9: Save user data in Firestore with provider info
-		providerConfig := map[string]interface{}{
-			"enabled": config.Enabled,
-			"type":    config.Provider,
-			"bucket":  config.Bucket,
-		}
-		if config.Provider == "s3" {
-			providerConfig["region"] = config.Region
-		} else if config.Provider == "gcs" {
-			providerConfig["projectId"] = config.ProjectID
-		}
-
-		err = firebase.SaveUserData(userRecord.UID, username, provider, providerConfig)
+		err = firebase.SaveUserData(userRecord.UID, username, provider)
 		if err != nil {
 			fmt.Println("❌ Failed to save user data in Firestore:", err)
 			return

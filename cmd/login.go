@@ -35,8 +35,8 @@ var loginCmd = &cobra.Command{
 			return
 		}
 
-		// Step 4: Get user data from Firestore
-		userData, err := firebase.GetUserDataByEmail(email)
+		// Step 4: Get user data from config
+		userData, err := cfg.GetUserDataByEmail(email)
 		if err != nil {
 			fmt.Println("❌ Failed to get user data:", err)
 			return
