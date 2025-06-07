@@ -1,10 +1,10 @@
 # Sensitive information
 service-account.json
 serviceAccountKey.json
+.env
 *.key
 *.pem
 credentials/
-.env
 .env.*
 .obscure/
 config.yaml
