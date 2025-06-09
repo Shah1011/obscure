@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 	cfg "github.com/shah1011/obscure/internal/config"
+	strg "github.com/shah1011/obscure/internal/storage"
 	"github.com/spf13/cobra"
 	"google.golang.org/api/iterator"
 )
@@ -40,6 +41,8 @@ var rmdirCmd = &cobra.Command{
 		case "gcs":
 			prefix = fmt.Sprintf("backups/%s/%s/", username, tag)
 		case "s3":
+			prefix = fmt.Sprintf("backups/%s/%s/", username, tag)
+		case "b2":
 			prefix = fmt.Sprintf("backups/%s/%s/", username, tag)
 		default:
 			fmt.Println("❌ Unknown provider:", providerKey)
@@ -73,6 +76,8 @@ var rmdirCmd = &cobra.Command{
 			deleteAllFromGCS(prefix)
 		case "s3":
 			deleteAllFromS3(prefix)
+		case "b2":
+			deleteAllFromB2(prefix)
 		}
 	},
 }
@@ -106,11 +111,11 @@ func tagExists(providerKey, prefix string) (bool, error) {
 
 	case "s3":
 		ctx := context.Background()
-		awsCfg, err := configAws()
+		awsCfg, err := strg.NewAWSClient(ctx, "s3")
 		if err != nil {
 			return false, fmt.Errorf("AWS config error: %w", err)
 		}
-		client := s3sdk.NewFromConfig(awsCfg)
+		client := s3sdk.NewFromConfig(*awsCfg)
 
 		resp, err := client.ListObjectsV2(ctx, &s3sdk.ListObjectsV2Input{
 			Bucket:  aws.String("obscure-open"),
@@ -121,6 +126,19 @@ func tagExists(providerKey, prefix string) (bool, error) {
 			return false, fmt.Errorf("error during listing: %w", err)
 		}
 		return len(resp.Contents) > 0, nil
+
+	case "b2":
+		ctx := context.Background()
+		b2Client, err := strg.NewB2Client(ctx, "b2")
+		if err != nil {
+			return false, fmt.Errorf("B2 config error: %w", err)
+		}
+
+		files, err := b2Client.ListFiles(ctx, prefix)
+		if err != nil {
+			return false, fmt.Errorf("error during listing: %w", err)
+		}
+		return len(files) > 0, nil
 
 	default:
 		return false, fmt.Errorf("unknown provider: %s", providerKey)
@@ -157,12 +175,12 @@ func deleteAllFromGCS(prefix string) {
 
 func deleteAllFromS3(prefix string) {
 	ctx := context.Background()
-	cfg, err := configAws()
+	awsCfg, err := strg.NewAWSClient(ctx, "s3")
 	if err != nil {
 		fmt.Println("❌ AWS config error:", err)
 		return
 	}
-	client := s3sdk.NewFromConfig(cfg)
+	client := s3sdk.NewFromConfig(*awsCfg)
 
 	paginator := s3sdk.NewListObjectsV2Paginator(client, &s3sdk.ListObjectsV2Input{
 		Bucket: aws.String("obscure-open"),
@@ -186,5 +204,28 @@ func deleteAllFromS3(prefix string) {
 			}
 			fmt.Println("🗑️ Deleted:", *obj.Key)
 		}
+	}
+}
+
+func deleteAllFromB2(prefix string) {
+	ctx := context.Background()
+	b2Client, err := strg.NewB2Client(ctx, "b2")
+	if err != nil {
+		fmt.Println("❌ B2 config error:", err)
+		return
+	}
+
+	files, err := b2Client.ListFiles(ctx, prefix)
+	if err != nil {
+		fmt.Println("❌ Error during listing:", err)
+		return
+	}
+
+	for _, file := range files {
+		if err := b2Client.DeleteFile(ctx, file); err != nil {
+			fmt.Println("❌ Failed to delete:", file)
+			continue
+		}
+		fmt.Println("🗑️ Deleted:", file)
 	}
 }

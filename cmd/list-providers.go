@@ -17,6 +17,7 @@ var listProvidersCmd = &cobra.Command{
 		providers := map[string]string{
 			"s3":  "Amazon S3",
 			"gcs": "Google Cloud Storage",
+			"b2":  "Backblaze B2",
 		}
 
 		// Get user's saved default provider key

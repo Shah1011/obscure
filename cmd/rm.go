@@ -57,6 +57,8 @@ var rmCmd = &cobra.Command{
 			deleteFromGCS(bucket, key)
 		case "s3":
 			deleteFromS3(bucket, key)
+		case "b2":
+			deleteFromB2(key)
 		default:
 			fmt.Println("❌ Unknown provider:", providerKey)
 		}
@@ -122,6 +124,33 @@ func deleteFromS3(bucket, key string) {
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
+	if err != nil {
+		fmt.Println("❌ Failed to delete:", err)
+		return
+	}
+	fmt.Println("🗑️  Deleted:", key)
+}
+
+func deleteFromB2(key string) {
+	ctx := context.Background()
+	b2Client, err := strg.NewB2Client(ctx, "b2")
+	if err != nil {
+		fmt.Println("❌ B2 config error:", err)
+		return
+	}
+
+	// Check if object exists first
+	exists, err := b2Client.FileExists(ctx, key)
+	if err != nil {
+		fmt.Println("❌ Failed to check file existence:", err)
+		return
+	}
+	if !exists {
+		fmt.Printf("❌ File does not exist: %s\n", key)
+		return
+	}
+
+	err = b2Client.DeleteFile(ctx, key)
 	if err != nil {
 		fmt.Println("❌ Failed to delete:", err)
 		return

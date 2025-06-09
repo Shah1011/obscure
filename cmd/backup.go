@@ -412,6 +412,42 @@ var backupCmd = &cobra.Command{
 				return
 			}
 
+		case "b2":
+			// Initialize B2 client using official SDK
+			ctx := context.Background()
+			b2Client, err := strg.NewB2Client(ctx, "b2")
+			if err != nil {
+				fmt.Printf("❌ Failed to initialize B2 client: %v\n", err)
+				return
+			}
+
+			// Check if object exists
+			exists, err := b2Client.FileExists(ctx, key)
+			if err != nil {
+				fmt.Printf("❌ Failed to check if backup exists: %v\n", err)
+				return
+			}
+			if exists {
+				fmt.Println("❌ A backup with this name already exists")
+				return
+			}
+
+			// Upload to B2 with spinner using official SDK
+			err = uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+				metadata := map[string]string{
+					"username":  username,
+					"tag":       tag,
+					"version":   version,
+					"is_direct": fmt.Sprintf("%v", isDirect),
+				}
+
+				return b2Client.UploadFile(ctx, key, reader, metadata)
+			})
+			if err != nil {
+				fmt.Printf("\n❌ Failed to upload to B2: %v\n", err)
+				return
+			}
+
 		default:
 			fmt.Printf("❌ Unsupported provider: %s\n", providerKey)
 			return

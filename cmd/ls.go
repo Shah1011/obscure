@@ -3,13 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
 	"cloud.google.com/go/storage"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/fatih/color"
 	cfg "github.com/shah1011/obscure/internal/config"
@@ -48,6 +46,9 @@ var lsCmd = &cobra.Command{
 		case "s3":
 			prefix := fmt.Sprintf("backups/%s/", username) // e.g., "backups/abul/"
 			listFromS3(prefix)
+		case "b2":
+			prefix := fmt.Sprintf("backups/%s/", username)
+			listFromB2(prefix)
 		default:
 			fmt.Println("❌ Unknown provider:", providerKey)
 		}
@@ -62,6 +63,25 @@ func listFromGCS(prefix string) {
 	ctx := context.Background()
 	client, err := strg.NewGCSClient(ctx, "gcs")
 	if err != nil {
+		// Check if it's a configuration error and provide helpful guidance
+		if strings.Contains(err.Error(), "configuration incomplete") {
+			fmt.Println("❌ GCS provider is not properly configured.")
+			fmt.Println("   Missing required configuration fields.")
+			fmt.Println("   Run: ./obscure provider add gcs")
+			fmt.Println("   Or check configuration with: ./obscure provider list")
+			return
+		}
+		if strings.Contains(err.Error(), "not configured") {
+			fmt.Println("❌ GCS provider is not configured.")
+			fmt.Println("   Run: ./obscure provider add gcs")
+			return
+		}
+		if strings.Contains(err.Error(), "disabled") {
+			fmt.Println("❌ GCS provider is disabled.")
+			fmt.Println("   Complete the configuration to enable it.")
+			fmt.Println("   Run: ./obscure provider add gcs")
+			return
+		}
 		fmt.Println("❌ Error initializing GCS client:", err)
 		return
 	}
@@ -84,7 +104,58 @@ func listFromGCS(prefix string) {
 			break
 		}
 		if err != nil {
-			fmt.Println("❌ Failed to list backups:", err)
+			// Comprehensive error handling for GCS-specific issues
+			errMsg := err.Error()
+
+			if strings.Contains(errMsg, "invalid_grant") {
+				fmt.Println("❌ Invalid GCS service account credentials.")
+				fmt.Println("   Check your service account JSON file.")
+				fmt.Println("   Run: ./obscure provider add gcs to update credentials")
+				return
+			}
+
+			if strings.Contains(errMsg, "storage: bucket doesn't exist") {
+				fmt.Println("❌ GCS bucket not found.")
+				fmt.Println("   Check your bucket name in the Google Cloud console.")
+				fmt.Println("   Run: ./obscure provider add gcs to update bucket name")
+				return
+			}
+
+			if strings.Contains(errMsg, "storage: permission denied") {
+				fmt.Println("❌ Access denied to GCS bucket.")
+				fmt.Println("   Possible issues:")
+				fmt.Println("   - Incorrect service account permissions")
+				fmt.Println("   - Bucket doesn't exist")
+				fmt.Println("   - Service account doesn't have access to this bucket")
+				fmt.Println("   Check your service account permissions in the Google Cloud console.")
+				return
+			}
+
+			if strings.Contains(errMsg, "exceeded maximum number of attempts") {
+				fmt.Println("❌ GCS connection timeout.")
+				fmt.Println("   Possible issues:")
+				fmt.Println("   - Network connectivity problem")
+				fmt.Println("   - Google Cloud service is slow or down")
+				fmt.Println("   - Incorrect project configuration")
+				fmt.Println("   Run: ./obscure provider add gcs to check configuration")
+				return
+			}
+
+			if strings.Contains(errMsg, "invalid character") || strings.Contains(errMsg, "unexpected end of JSON") {
+				fmt.Println("❌ Invalid GCS service account JSON file.")
+				fmt.Println("   The JSON file appears to be corrupted or invalid.")
+				fmt.Println("   Download a fresh service account key from Google Cloud console.")
+				fmt.Println("   Run: ./obscure provider add gcs to update credentials")
+				return
+			}
+
+			// Generic error with suggestion to check configuration
+			fmt.Println("❌ Failed to list GCS backups:", err)
+			fmt.Println("   This might be due to:")
+			fmt.Println("   - Invalid service account credentials")
+			fmt.Println("   - Incorrect bucket name")
+			fmt.Println("   - Network connectivity issues")
+			fmt.Println("   Run: ./obscure provider add gcs to reconfigure")
 			return
 		}
 		files = append(files, obj.Name)
@@ -100,6 +171,25 @@ func listFromS3(prefix string) {
 	ctx := context.Background()
 	awsCfg, err := strg.NewAWSClient(ctx, "s3")
 	if err != nil {
+		// Check if it's a configuration error and provide helpful guidance
+		if strings.Contains(err.Error(), "configuration incomplete") {
+			fmt.Println("❌ S3 provider is not properly configured.")
+			fmt.Println("   Missing required configuration fields.")
+			fmt.Println("   Run: ./obscure provider add s3")
+			fmt.Println("   Or check configuration with: ./obscure provider list")
+			return
+		}
+		if strings.Contains(err.Error(), "not configured") {
+			fmt.Println("❌ S3 provider is not configured.")
+			fmt.Println("   Run: ./obscure provider add s3")
+			return
+		}
+		if strings.Contains(err.Error(), "disabled") {
+			fmt.Println("❌ S3 provider is disabled.")
+			fmt.Println("   Complete the configuration to enable it.")
+			fmt.Println("   Run: ./obscure provider add s3")
+			return
+		}
 		fmt.Println("❌ Failed to load AWS config:", err)
 		return
 	}
@@ -125,7 +215,57 @@ func listFromS3(prefix string) {
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
 		if err != nil {
+			// Comprehensive error handling for S3-specific issues
+			errMsg := err.Error()
+
+			if strings.Contains(errMsg, "InvalidAccessKeyId") {
+				fmt.Println("❌ Invalid AWS Access Key ID.")
+				fmt.Println("   Check your AWS Access Key ID in the AWS console.")
+				fmt.Println("   Run: ./obscure provider add s3 to update credentials")
+				return
+			}
+
+			if strings.Contains(errMsg, "SignatureDoesNotMatch") {
+				fmt.Println("❌ Invalid AWS Secret Access Key.")
+				fmt.Println("   Check your AWS Secret Access Key in the AWS console.")
+				fmt.Println("   Run: ./obscure provider add s3 to update credentials")
+				return
+			}
+
+			if strings.Contains(errMsg, "NoSuchBucket") {
+				fmt.Println("❌ S3 bucket not found.")
+				fmt.Println("   Check your bucket name in the AWS console.")
+				fmt.Println("   Run: ./obscure provider add s3 to update bucket name")
+				return
+			}
+
+			if strings.Contains(errMsg, "AccessDenied") {
+				fmt.Println("❌ Access denied to S3 bucket.")
+				fmt.Println("   Possible issues:")
+				fmt.Println("   - Incorrect IAM permissions")
+				fmt.Println("   - Bucket doesn't exist")
+				fmt.Println("   - IAM user doesn't have access to this bucket")
+				fmt.Println("   Check your IAM user permissions in the AWS console.")
+				return
+			}
+
+			if strings.Contains(errMsg, "exceeded maximum number of attempts") {
+				fmt.Println("❌ S3 connection timeout.")
+				fmt.Println("   Possible issues:")
+				fmt.Println("   - Incorrect region")
+				fmt.Println("   - Network connectivity problem")
+				fmt.Println("   - AWS service is slow or down")
+				fmt.Println("   Run: ./obscure provider add s3 to check/update region")
+				return
+			}
+
+			// Generic error with suggestion to check configuration
 			fmt.Println("❌ Failed to list S3 backups:", err)
+			fmt.Println("   This might be due to:")
+			fmt.Println("   - Incorrect region")
+			fmt.Println("   - Invalid credentials")
+			fmt.Println("   - Network connectivity issues")
+			fmt.Println("   Run: ./obscure provider add s3 to reconfigure")
 			return
 		}
 		for _, obj := range page.Contents {
@@ -144,6 +284,123 @@ func listFromS3(prefix string) {
 				metadata[*obj.Key] = isDirect
 			}
 		}
+	}
+
+	printBackups(files, metadata)
+}
+
+func listFromB2(prefix string) {
+	ctx := context.Background()
+	b2Client, err := strg.NewB2Client(ctx, "b2")
+	if err != nil {
+		// Check if it's a configuration error and provide helpful guidance
+		if strings.Contains(err.Error(), "configuration incomplete") {
+			fmt.Println("❌ B2 provider is not properly configured.")
+			fmt.Println("   Missing required configuration fields.")
+			fmt.Println("   Run: ./obscure provider add b2")
+			fmt.Println("   Or check configuration with: ./obscure provider list")
+			return
+		}
+		if strings.Contains(err.Error(), "not configured") {
+			fmt.Println("❌ B2 provider is not configured.")
+			fmt.Println("   Run: ./obscure provider add b2")
+			return
+		}
+		if strings.Contains(err.Error(), "disabled") {
+			fmt.Println("❌ B2 provider is disabled.")
+			fmt.Println("   Complete the configuration to enable it.")
+			fmt.Println("   Run: ./obscure provider add b2")
+			return
+		}
+		fmt.Println("❌ Failed to load B2 config:", err)
+		return
+	}
+
+	// List files using official B2 SDK
+	files, err := b2Client.ListFiles(ctx, prefix)
+	if err != nil {
+		// Comprehensive error handling for B2-specific issues
+		errMsg := err.Error()
+
+		// Check for endpoint/URL issues
+		if strings.Contains(errMsg, "tls: failed to verify certificate") {
+			fmt.Println("❌ B2 endpoint certificate verification failed.")
+			fmt.Println("   This usually means the endpoint URL is incorrect.")
+			fmt.Println("   Check your B2 bucket's endpoint in the Backblaze console.")
+			fmt.Println("   Run: ./obscure provider add b2 to update the endpoint")
+			return
+		}
+
+		if strings.Contains(errMsg, "no such host") || strings.Contains(errMsg, "dial tcp") {
+			fmt.Println("❌ Cannot connect to B2 endpoint.")
+			fmt.Println("   Possible issues:")
+			fmt.Println("   - Incorrect endpoint URL")
+			fmt.Println("   - Network connectivity problem")
+			fmt.Println("   - B2 service is down")
+			fmt.Println("   Run: ./obscure provider add b2 to check/update endpoint")
+			return
+		}
+
+		if strings.Contains(errMsg, "exceeded maximum number of attempts") {
+			fmt.Println("❌ B2 connection timeout.")
+			fmt.Println("   Possible issues:")
+			fmt.Println("   - Incorrect endpoint URL")
+			fmt.Println("   - Network connectivity problem")
+			fmt.Println("   - B2 service is slow or down")
+			fmt.Println("   Run: ./obscure provider add b2 to check/update endpoint")
+			return
+		}
+
+		if strings.Contains(errMsg, "InvalidAccessKeyId") {
+			fmt.Println("❌ Invalid B2 Application Key ID.")
+			fmt.Println("   Check your B2 Application Key ID in the Backblaze console.")
+			fmt.Println("   Run: ./obscure provider add b2 to update credentials")
+			return
+		}
+
+		if strings.Contains(errMsg, "SignatureDoesNotMatch") {
+			fmt.Println("❌ Invalid B2 Application Key.")
+			fmt.Println("   Check your B2 Application Key in the Backblaze console.")
+			fmt.Println("   Run: ./obscure provider add b2 to update credentials")
+			return
+		}
+
+		if strings.Contains(errMsg, "NoSuchBucket") {
+			fmt.Println("❌ B2 bucket not found.")
+			fmt.Println("   Check your bucket name in the Backblaze console.")
+			fmt.Println("   Run: ./obscure provider add b2 to update bucket name")
+			return
+		}
+
+		if strings.Contains(errMsg, "AccessDenied") {
+			fmt.Println("❌ Access denied to B2 bucket.")
+			fmt.Println("   Possible issues:")
+			fmt.Println("   - Incorrect Application Key permissions")
+			fmt.Println("   - Bucket doesn't exist")
+			fmt.Println("   - Application Key doesn't have access to this bucket")
+			fmt.Println("   Check your B2 Application Key permissions in the Backblaze console.")
+			return
+		}
+
+		// Generic error with suggestion to check configuration
+		fmt.Println("❌ Failed to list B2 backups:", err)
+		fmt.Println("   This might be due to:")
+		fmt.Println("   - Incorrect endpoint URL")
+		fmt.Println("   - Invalid credentials")
+		fmt.Println("   - Network connectivity issues")
+		fmt.Println("   Run: ./obscure provider add b2 to reconfigure")
+		return
+	}
+
+	// Get metadata for each file
+	metadata := make(map[string]bool)
+	for _, file := range files {
+		fileMetadata, err := b2Client.GetFileMetadata(ctx, file)
+		if err != nil {
+			continue
+		}
+		isDirect := fileMetadata["is_direct"] == "true"
+		metadata[file] = isDirect
 	}
 
 	printBackups(files, metadata)
@@ -215,10 +472,4 @@ func printBackups(files []string, metadata map[string]bool) {
 			fmt.Printf("   - %s\n", greenBold(v))
 		}
 	}
-}
-
-func configAws() (aws.Config, error) {
-	return awsconfig.LoadDefaultConfig(context.Background(),
-		awsconfig.WithRegion(os.Getenv("AWS_REGION")),
-	)
 }

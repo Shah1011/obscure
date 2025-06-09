@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Helper function to read input that handles pasting properly
+func readInput(prompt string) string {
+	fmt.Print(prompt)
+	reader := bufio.NewReader(os.Stdin)
+	input, _ := reader.ReadString('\n')
+	return strings.TrimSpace(input)
+}
+
 var providerCmd = &cobra.Command{
 	Use:   "provider",
 	Short: "Manage cloud storage providers",
@@ -18,72 +28,225 @@ var providerCmd = &cobra.Command{
 your own cloud storage accounts for backup storage.`,
 }
 
+// Validation functions
+func validateBucketName(bucket string) error {
+	if strings.TrimSpace(bucket) == "" {
+		return fmt.Errorf("bucket name cannot be empty")
+	}
+	if len(bucket) < 3 {
+		return fmt.Errorf("bucket name must be at least 3 characters long")
+	}
+	if len(bucket) > 63 {
+		return fmt.Errorf("bucket name must be less than 63 characters")
+	}
+	// Check for valid characters (alphanumeric, hyphens, dots)
+	for _, char := range bucket {
+		if !((char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char == '-' || char == '.') {
+			return fmt.Errorf("bucket name contains invalid characters (only lowercase letters, numbers, hyphens, and dots allowed)")
+		}
+	}
+	return nil
+}
+
+func validateRegion(region string) error {
+	if strings.TrimSpace(region) == "" {
+		return fmt.Errorf("region cannot be empty")
+	}
+	if len(region) < 3 {
+		return fmt.Errorf("region must be at least 3 characters long")
+	}
+	return nil
+}
+
+func validateAccessKey(accessKey string) error {
+	if strings.TrimSpace(accessKey) == "" {
+		return fmt.Errorf("access key cannot be empty")
+	}
+	if len(accessKey) < 16 {
+		return fmt.Errorf("access key must be at least 16 characters long")
+	}
+	return nil
+}
+
+func validateSecretKey(secretKey string) error {
+	if strings.TrimSpace(secretKey) == "" {
+		return fmt.Errorf("secret key cannot be empty")
+	}
+	if len(secretKey) < 16 {
+		return fmt.Errorf("secret key must be at least 16 characters long")
+	}
+	return nil
+}
+
+func validateProjectID(projectID string) error {
+	if strings.TrimSpace(projectID) == "" {
+		return fmt.Errorf("project ID cannot be empty")
+	}
+	if len(projectID) < 3 {
+		return fmt.Errorf("project ID must be at least 3 characters long")
+	}
+	return nil
+}
+
+func validateServiceAccountPath(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("service account path cannot be empty")
+	}
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return fmt.Errorf("service account file not found at: %s", path)
+	}
+	return nil
+}
+
+func validateEndpoint(endpoint string) error {
+	if strings.TrimSpace(endpoint) == "" {
+		return fmt.Errorf("endpoint cannot be empty")
+	}
+	if !strings.HasPrefix(endpoint, "https://") {
+		return fmt.Errorf("endpoint must start with https://")
+	}
+	_, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("invalid URL format: %v", err)
+	}
+	return nil
+}
+
+func validateApplicationKeyID(appKeyID string) error {
+	if strings.TrimSpace(appKeyID) == "" {
+		return fmt.Errorf("application key ID cannot be empty")
+	}
+	if len(appKeyID) < 8 {
+		return fmt.Errorf("application key ID must be at least 8 characters long")
+	}
+	return nil
+}
+
+func validateApplicationKey(appKey string) error {
+	if strings.TrimSpace(appKey) == "" {
+		return fmt.Errorf("application key cannot be empty")
+	}
+	if len(appKey) < 8 {
+		return fmt.Errorf("application key must be at least 8 characters long")
+	}
+	return nil
+}
+
+// Check if provider configuration is complete
+func isProviderConfigComplete(config *cfg.CloudProviderConfig) (bool, []string) {
+	var missing []string
+
+	switch config.Provider {
+	case "s3":
+		if config.Bucket == "" {
+			missing = append(missing, "bucket name")
+		}
+		if config.Region == "" {
+			missing = append(missing, "region")
+		}
+		if config.AccessKeyID == "" {
+			missing = append(missing, "access key ID")
+		}
+		if config.SecretAccessKey == "" {
+			missing = append(missing, "secret access key")
+		}
+	case "gcs":
+		if config.ProjectID == "" {
+			missing = append(missing, "project ID")
+		}
+		if config.ServiceAccount == "" {
+			missing = append(missing, "service account path")
+		}
+	case "b2":
+		if config.Bucket == "" {
+			missing = append(missing, "bucket name")
+		}
+		if config.Endpoint == "" {
+			missing = append(missing, "endpoint")
+		}
+		if config.ApplicationKeyID == "" {
+			missing = append(missing, "application key ID")
+		}
+		if config.ApplicationKey == "" {
+			missing = append(missing, "application key")
+		}
+	}
+
+	return len(missing) == 0, missing
+}
+
 var addProviderCmd = &cobra.Command{
-	Use:   "add [s3|gcs]",
+	Use:   "add [s3|gcs|b2]",
 	Short: "Add a new cloud storage provider",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		provider := strings.ToLower(args[0])
-		if provider != "s3" && provider != "gcs" {
-			fmt.Println("❌ Invalid provider. Use 's3' or 'gcs'")
+		if provider != "s3" && provider != "gcs" && provider != "b2" {
+			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', or 'b2'")
 			return
 		}
 
 		config := &cfg.CloudProviderConfig{
 			Provider: provider,
-			Enabled:  true,
+			Enabled:  false, // Start as disabled until fully configured
 		}
 
+		// Check if provider already exists
+		existingProviders, err := cfg.LoadUserProviders()
+		if err == nil {
+			if existingConfig, exists := existingProviders.Providers[provider]; exists {
+				// Check if existing config is complete
+				isComplete, missing := isProviderConfigComplete(existingConfig)
+				if isComplete {
+					fmt.Printf("⚠️  Provider %s is already configured.\n", strings.ToUpper(provider))
+					fmt.Print("Do you want to update the configuration? (y/N): ")
+					var input string
+					fmt.Scanln(&input)
+					if strings.ToLower(strings.TrimSpace(input)) != "y" {
+						fmt.Println("❎ Provider configuration cancelled")
+						return
+					}
+				} else {
+					fmt.Printf("⚠️  Provider %s exists but is incomplete (missing: %s).\n",
+						strings.ToUpper(provider), strings.Join(missing, ", "))
+					fmt.Print("Do you want to complete the configuration? (y/N): ")
+					var input string
+					fmt.Scanln(&input)
+					if strings.ToLower(strings.TrimSpace(input)) != "y" {
+						fmt.Println("❎ Provider configuration cancelled")
+						return
+					}
+				}
+			}
+		}
+
+		// Configure the provider based on type
 		switch provider {
 		case "s3":
-			// Prompt for S3 credentials
-			bucket, err := promptLine("Enter S3 bucket name: ")
-			if err != nil {
-				fmt.Println("❌ Invalid bucket name")
+			if err := configureS3Provider(config); err != nil {
+				fmt.Printf("❌ S3 configuration failed: %v\n", err)
 				return
 			}
-			region, err := promptLine("Enter AWS region (e.g., us-east-1): ")
-			if err != nil {
-				fmt.Println("❌ Invalid region")
-				return
-			}
-			accessKey, err := promptLine("Enter AWS Access Key ID: ")
-			if err != nil {
-				fmt.Println("❌ Invalid access key")
-				return
-			}
-			secretKey, err := promptPassword("Enter AWS Secret Access Key: ")
-			if err != nil {
-				fmt.Println("❌ Invalid secret key")
-				return
-			}
-
-			config.Bucket = bucket
-			config.Region = region
-			config.AccessKeyID = accessKey
-			config.SecretAccessKey = secretKey
-
 		case "gcs":
-			// Prompt for GCS credentials
-			projectID, err := promptLine("Enter Google Cloud Project ID: ")
-			if err != nil {
-				fmt.Println("❌ Invalid project ID")
+			if err := configureGCSProvider(config); err != nil {
+				fmt.Printf("❌ GCS configuration failed: %v\n", err)
 				return
 			}
-			serviceAccountPath, err := promptLine("Enter path to service account key file: ")
-			if err != nil {
-				fmt.Println("❌ Invalid service account path")
+		case "b2":
+			if err := configureB2Provider(config); err != nil {
+				fmt.Printf("❌ B2 configuration failed: %v\n", err)
 				return
 			}
+		}
 
-			// Verify service account file exists
-			if _, err := os.Stat(serviceAccountPath); os.IsNotExist(err) {
-				fmt.Println("❌ Service account file not found")
-				return
-			}
-
-			config.ProjectID = projectID
-			config.ServiceAccount = serviceAccountPath
+		// Validate final configuration
+		isComplete, missing := isProviderConfigComplete(config)
+		if !isComplete {
+			fmt.Printf("❌ Configuration incomplete. Missing: %s\n", strings.Join(missing, ", "))
+			fmt.Println("Provider will remain disabled until configuration is complete.")
+			config.Enabled = false
+		} else {
+			config.Enabled = true
 		}
 
 		// Save the configuration
@@ -92,18 +255,127 @@ var addProviderCmd = &cobra.Command{
 			return
 		}
 
-		fmt.Printf("✅ Successfully added %s provider\n", strings.ToUpper(provider))
+		if config.Enabled {
+			fmt.Printf("✅ Successfully added and enabled %s provider\n", strings.ToUpper(provider))
+		} else {
+			fmt.Printf("⚠️  %s provider added but disabled due to incomplete configuration\n", strings.ToUpper(provider))
+			fmt.Printf("   Missing: %s\n", strings.Join(missing, ", "))
+			fmt.Printf("   Run './obscure provider add %s' again to complete configuration\n", provider)
+		}
 	},
 }
 
+func configureS3Provider(config *cfg.CloudProviderConfig) error {
+	fmt.Println("\n🔧 Configure AWS S3 storage:")
+
+	// Bucket name
+	bucket := readInput("Enter S3 bucket name: ")
+	if err := validateBucketName(bucket); err != nil {
+		return fmt.Errorf("invalid bucket name: %v", err)
+	}
+
+	// Region
+	region := readInput("Enter AWS region (e.g., us-east-1): ")
+	if err := validateRegion(region); err != nil {
+		return fmt.Errorf("invalid region: %v", err)
+	}
+
+	// Access Key ID
+	accessKey := readInput("Enter AWS Access Key ID: ")
+	if err := validateAccessKey(accessKey); err != nil {
+		return fmt.Errorf("invalid access key: %v", err)
+	}
+
+	// Secret Access Key
+	secretKey := readInput("Enter AWS Secret Access Key: ")
+	if err := validateSecretKey(secretKey); err != nil {
+		return fmt.Errorf("invalid secret key: %v", err)
+	}
+
+	config.Bucket = bucket
+	config.Region = region
+	config.AccessKeyID = accessKey
+	config.SecretAccessKey = secretKey
+
+	return nil
+}
+
+func configureGCSProvider(config *cfg.CloudProviderConfig) error {
+	fmt.Println("\n🔧 Configure Google Cloud Storage:")
+
+	// Project ID
+	projectID := readInput("Enter Google Cloud Project ID: ")
+	if err := validateProjectID(projectID); err != nil {
+		return fmt.Errorf("invalid project ID: %v", err)
+	}
+
+	// Service Account Path
+	serviceAccountPath := readInput("Enter path to service account key file: ")
+	if err := validateServiceAccountPath(serviceAccountPath); err != nil {
+		return fmt.Errorf("invalid service account path: %v", err)
+	}
+
+	config.ProjectID = projectID
+	config.ServiceAccount = serviceAccountPath
+
+	return nil
+}
+
+func configureB2Provider(config *cfg.CloudProviderConfig) error {
+	fmt.Println("\n🔧 Configure Backblaze B2 storage:")
+
+	// Bucket name
+	bucket := readInput("Enter B2 bucket name: ")
+	if err := validateBucketName(bucket); err != nil {
+		return fmt.Errorf("invalid bucket name: %v", err)
+	}
+
+	// Endpoint
+	endpoint := readInput("Enter B2 endpoint URL (e.g., https://s3.us-west-002.backblazeb2.com): ")
+	if err := validateEndpoint(endpoint); err != nil {
+		return fmt.Errorf("invalid endpoint: %v", err)
+	}
+
+	// Application Key ID
+	appKeyID := readInput("Enter B2 Application Key ID: ")
+	if err := validateApplicationKeyID(appKeyID); err != nil {
+		return fmt.Errorf("invalid application key ID: %v", err)
+	}
+
+	// Application Key
+	appKey := readInput("Enter B2 Application Key: ")
+	if err := validateApplicationKey(appKey); err != nil {
+		return fmt.Errorf("invalid application key: %v", err)
+	}
+
+	config.Bucket = bucket
+	config.Endpoint = endpoint
+	config.ApplicationKeyID = appKeyID
+	config.ApplicationKey = appKey
+
+	return nil
+}
+
 var removeProviderCmd = &cobra.Command{
-	Use:   "remove [s3|gcs]",
+	Use:   "remove [s3|gcs|b2]",
 	Short: "Remove a cloud storage provider",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		provider := strings.ToLower(args[0])
-		if provider != "s3" && provider != "gcs" {
-			fmt.Println("❌ Invalid provider. Use 's3' or 'gcs'")
+		if provider != "s3" && provider != "gcs" && provider != "b2" {
+			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', or 'b2'")
+			return
+		}
+
+		// Check if provider exists
+		existingProviders, err := cfg.LoadUserProviders()
+		if err != nil {
+			fmt.Printf("❌ Failed to load providers: %v\n", err)
+			return
+		}
+
+		if _, exists := existingProviders.Providers[provider]; !exists {
+			fmt.Printf("❌ Provider %s is not configured\n", strings.ToUpper(provider))
 			return
 		}
 
@@ -143,17 +415,33 @@ var listCmd = &cobra.Command{
 
 		fmt.Println("Configured providers:")
 		for provider, config := range providers.Providers {
-			status := "✅ Enabled"
+			// Check if configuration is complete
+			isComplete, missing := isProviderConfigComplete(config)
+
+			var status string
 			if !config.Enabled {
 				status = "❌ Disabled"
+			} else if !isComplete {
+				status = "⚠️  Incomplete"
+			} else {
+				status = "✅ Enabled"
 			}
+
 			fmt.Printf("  • %s: %s\n", strings.ToUpper(provider), status)
+
+			if !isComplete {
+				fmt.Printf("    Missing: %s\n", strings.Join(missing, ", "))
+			}
+
 			if config.Provider == "s3" {
 				fmt.Printf("    Bucket: %s\n", config.Bucket)
 				fmt.Printf("    Region: %s\n", config.Region)
 			} else if config.Provider == "gcs" {
 				fmt.Printf("    Project: %s\n", config.ProjectID)
 				fmt.Printf("    Service Account: %s\n", filepath.Base(config.ServiceAccount))
+			} else if config.Provider == "b2" {
+				fmt.Printf("    Bucket: %s\n", config.Bucket)
+				fmt.Printf("    Endpoint: %s\n", config.Endpoint)
 			}
 		}
 	},
@@ -164,21 +452,4 @@ func init() {
 	providerCmd.AddCommand(addProviderCmd)
 	providerCmd.AddCommand(removeProviderCmd)
 	providerCmd.AddCommand(listCmd)
-}
-
-// Helper function for prompting user input
-func promptLine(label string) (string, error) {
-	prompt := promptui.Prompt{
-		Label: label,
-	}
-	return prompt.Run()
-}
-
-// Helper function for prompting password
-func promptPassword(label string) (string, error) {
-	prompt := promptui.Prompt{
-		Label: label,
-		Mask:  '*',
-	}
-	return prompt.Run()
 }

@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type CloudProviderConfig struct {
-	Provider string `json:"provider"` // "s3" or "gcs"
+	Provider string `json:"provider"` // "s3", "gcs", or "b2"
 	Enabled  bool   `json:"enabled"`
 	// S3 specific fields
 	Bucket          string `json:"bucket,omitempty"`
@@ -18,10 +19,63 @@ type CloudProviderConfig struct {
 	// GCS specific fields
 	ProjectID      string `json:"project_id,omitempty"`
 	ServiceAccount string `json:"service_account,omitempty"` // Path to service account key file
+	// Backblaze B2 specific fields
+	ApplicationKeyID string `json:"application_key_id,omitempty"`
+	ApplicationKey   string `json:"application_key,omitempty"`
+	Endpoint         string `json:"endpoint,omitempty"` // B2 endpoint URL
 }
 
 type UserProviders struct {
 	Providers map[string]*CloudProviderConfig `json:"providers"` // key is provider name (s3/gcs)
+}
+
+// Check if provider configuration is complete
+func IsProviderConfigComplete(config *CloudProviderConfig) (bool, []string) {
+	var missing []string
+
+	switch config.Provider {
+	case "s3":
+		if strings.TrimSpace(config.Bucket) == "" {
+			missing = append(missing, "bucket name")
+		}
+		if strings.TrimSpace(config.Region) == "" {
+			missing = append(missing, "region")
+		}
+		if strings.TrimSpace(config.AccessKeyID) == "" {
+			missing = append(missing, "access key ID")
+		}
+		if strings.TrimSpace(config.SecretAccessKey) == "" {
+			missing = append(missing, "secret access key")
+		}
+	case "gcs":
+		if strings.TrimSpace(config.ProjectID) == "" {
+			missing = append(missing, "project ID")
+		}
+		if strings.TrimSpace(config.ServiceAccount) == "" {
+			missing = append(missing, "service account path")
+		}
+		// Check if service account file exists
+		if strings.TrimSpace(config.ServiceAccount) != "" {
+			if _, err := os.Stat(config.ServiceAccount); os.IsNotExist(err) {
+				missing = append(missing, "service account file not found")
+			}
+		}
+	case "b2":
+		if strings.TrimSpace(config.Bucket) == "" {
+			missing = append(missing, "bucket name")
+		}
+		if strings.TrimSpace(config.Endpoint) == "" {
+			missing = append(missing, "endpoint")
+		}
+		if strings.TrimSpace(config.ApplicationKeyID) == "" {
+			missing = append(missing, "application key ID")
+		}
+		if strings.TrimSpace(config.ApplicationKey) == "" {
+			missing = append(missing, "application key")
+		}
+	}
+
+	return len(missing) == 0, missing
 }
 
 func getProvidersFilePath() string {
@@ -84,8 +138,19 @@ func GetProviderConfig(provider string) (*CloudProviderConfig, error) {
 	}
 
 	config, exists := providers.Providers[provider]
-	if !exists || !config.Enabled {
-		return nil, fmt.Errorf("provider %s not configured or not enabled", provider)
+	if !exists {
+		return nil, fmt.Errorf("provider %s not configured", provider)
+	}
+
+	if !config.Enabled {
+		return nil, fmt.Errorf("provider %s is disabled", provider)
+	}
+
+	// Check if configuration is complete
+	isComplete, missing := IsProviderConfigComplete(config)
+	if !isComplete {
+		return nil, fmt.Errorf("provider %s configuration incomplete (missing: %s)",
+			provider, strings.Join(missing, ", "))
 	}
 
 	return config, nil
@@ -110,7 +175,10 @@ func ListConfiguredProviders() ([]string, error) {
 	var enabled []string
 	for provider, config := range providers.Providers {
 		if config.Enabled {
-			enabled = append(enabled, provider)
+			isComplete, _ := IsProviderConfigComplete(config)
+			if isComplete {
+				enabled = append(enabled, provider)
+			}
 		}
 	}
 	return enabled, nil

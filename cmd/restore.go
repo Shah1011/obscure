@@ -150,6 +150,7 @@ You can also combine both formats, but the flags will take precedence.`,
 		providerNames := map[string]string{
 			"s3":  "Amazon S3",
 			"gcs": "Google Cloud Storage",
+			"b2":  "Backblaze B2",
 		}
 		providerDisplayName := providerNames[provider]
 		if providerDisplayName == "" {
@@ -200,6 +201,19 @@ You can also combine both formats, but the flags will take precedence.`,
 				}
 				return
 			}
+
+		case "b2":
+			fmt.Println("🔽 Downloading backup from B2...")
+			rawReader, size, err = utils.DownloadFromB2Stream(key)
+			if err != nil {
+				if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "does not exist") {
+					fmt.Printf("❌ No backup found for tag '%s' and version '%s' in B2.\n", restoreTag, restoreVersion)
+				} else {
+					fmt.Println("❌ Failed to download backup:", err)
+				}
+				return
+			}
+
 		default:
 			fmt.Println("❌ Unknown provider.")
 			return
