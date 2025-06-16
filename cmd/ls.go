@@ -49,8 +49,11 @@ var lsCmd = &cobra.Command{
 		case "b2":
 			prefix := fmt.Sprintf("backups/%s/", username)
 			listFromB2(prefix)
+		case "idrive":
+			prefix := fmt.Sprintf("backups/%s/", username)
+			listFromIDrive(prefix)
 		default:
-			fmt.Println("❌ Unknown provider:", providerKey)
+			fmt.Printf("❌ Unknown provider: %s\n", providerKey)
 		}
 	},
 }
@@ -401,6 +404,121 @@ func listFromB2(prefix string) {
 		}
 		isDirect := fileMetadata["is_direct"] == "true"
 		metadata[file] = isDirect
+	}
+
+	printBackups(files, metadata)
+}
+
+func listFromIDrive(prefix string) {
+	ctx := context.Background()
+	idriveClient, err := strg.NewIDriveClient(ctx, "idrive")
+	if err != nil {
+		// Check if it's a configuration error and provide helpful guidance
+		if strings.Contains(err.Error(), "configuration incomplete") {
+			fmt.Println("❌ IDrive E2 provider is not properly configured.")
+			fmt.Println("   Missing required configuration fields.")
+			fmt.Println("   Run: ./obscure provider add idrive")
+			fmt.Println("   Or check configuration with: ./obscure provider list")
+			return
+		}
+		if strings.Contains(err.Error(), "not configured") {
+			fmt.Println("❌ IDrive E2 provider is not configured.")
+			fmt.Println("   Run: ./obscure provider add idrive")
+			return
+		}
+		if strings.Contains(err.Error(), "disabled") {
+			fmt.Println("❌ IDrive E2 provider is disabled.")
+			fmt.Println("   Complete the configuration to enable it.")
+			fmt.Println("   Run: ./obscure provider add idrive")
+			return
+		}
+		fmt.Println("❌ Failed to load IDrive E2 config:", err)
+		return
+	}
+
+	// List files using IDrive E2 client
+	files, err := idriveClient.ListFiles(ctx, prefix)
+	if err != nil {
+		// Comprehensive error handling for IDrive E2-specific issues
+		errMsg := err.Error()
+
+		// Check for endpoint/URL issues
+		if strings.Contains(errMsg, "tls: failed to verify certificate") {
+			fmt.Println("❌ IDrive E2 endpoint certificate verification failed.")
+			fmt.Println("   This usually means the endpoint URL is incorrect.")
+			fmt.Println("   Check your IDrive E2 bucket's endpoint.")
+			fmt.Println("   Run: ./obscure provider add idrive to update the endpoint")
+			return
+		}
+
+		if strings.Contains(errMsg, "no such host") || strings.Contains(errMsg, "dial tcp") {
+			fmt.Println("❌ Cannot connect to IDrive E2 endpoint.")
+			fmt.Println("   Possible issues:")
+			fmt.Println("   - Incorrect endpoint URL")
+			fmt.Println("   - Network connectivity problem")
+			fmt.Println("   - IDrive E2 service is down")
+			fmt.Println("   Run: ./obscure provider add idrive to check/update endpoint")
+			return
+		}
+
+		if strings.Contains(errMsg, "exceeded maximum number of attempts") {
+			fmt.Println("❌ IDrive E2 connection timeout.")
+			fmt.Println("   Possible issues:")
+			fmt.Println("   - Incorrect endpoint URL")
+			fmt.Println("   - Network connectivity problem")
+			fmt.Println("   - IDrive E2 service is slow or down")
+			fmt.Println("   Run: ./obscure provider add idrive to check/update endpoint")
+			return
+		}
+
+		if strings.Contains(errMsg, "InvalidAccessKeyId") {
+			fmt.Println("❌ Invalid IDrive E2 Access Key ID.")
+			fmt.Println("   Check your IDrive E2 Access Key ID.")
+			fmt.Println("   Run: ./obscure provider add idrive to update credentials")
+			return
+		}
+
+		if strings.Contains(errMsg, "SignatureDoesNotMatch") {
+			fmt.Println("❌ Invalid IDrive E2 Secret Access Key.")
+			fmt.Println("   Check your IDrive E2 Secret Access Key.")
+			fmt.Println("   Run: ./obscure provider add idrive to update credentials")
+			return
+		}
+
+		if strings.Contains(errMsg, "NoSuchBucket") {
+			fmt.Println("❌ IDrive E2 bucket not found.")
+			fmt.Println("   Check your bucket name.")
+			fmt.Println("   Run: ./obscure provider add idrive to update bucket name")
+			return
+		}
+
+		if strings.Contains(errMsg, "AccessDenied") {
+			fmt.Println("❌ Access denied to IDrive E2 bucket.")
+			fmt.Println("   Possible issues:")
+			fmt.Println("   - Incorrect credentials")
+			fmt.Println("   - Bucket doesn't exist")
+			fmt.Println("   - Credentials don't have access to this bucket")
+			fmt.Println("   Check your IDrive E2 credentials.")
+			return
+		}
+
+		// Generic error with suggestion to check configuration
+		fmt.Println("❌ Failed to list IDrive E2 backups:", err)
+		fmt.Println("   This might be due to:")
+		fmt.Println("   - Incorrect endpoint URL")
+		fmt.Println("   - Invalid credentials")
+		fmt.Println("   - Network connectivity issues")
+		fmt.Println("   Run: ./obscure provider add idrive to reconfigure")
+		return
+	}
+
+	// Get metadata for each file
+	metadata := make(map[string]bool)
+	for _, file := range files {
+		// For IDrive E2, we'll need to get metadata differently since it's S3-compatible
+		// For now, we'll assume all files are not direct backups
+		// TODO: Implement proper metadata retrieval for IDrive E2
+		metadata[file] = false
 	}
 
 	printBackups(files, metadata)

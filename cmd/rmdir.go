@@ -44,6 +44,8 @@ var rmdirCmd = &cobra.Command{
 			prefix = fmt.Sprintf("backups/%s/%s/", username, tag)
 		case "b2":
 			prefix = fmt.Sprintf("backups/%s/%s/", username, tag)
+		case "idrive":
+			prefix = fmt.Sprintf("backups/%s/%s/", username, tag)
 		default:
 			fmt.Println("❌ Unknown provider:", providerKey)
 			return
@@ -78,6 +80,8 @@ var rmdirCmd = &cobra.Command{
 			deleteAllFromS3(prefix)
 		case "b2":
 			deleteAllFromB2(prefix)
+		case "idrive":
+			deleteAllFromIDrive(prefix)
 		}
 	},
 }
@@ -135,6 +139,19 @@ func tagExists(providerKey, prefix string) (bool, error) {
 		}
 
 		files, err := b2Client.ListFiles(ctx, prefix)
+		if err != nil {
+			return false, fmt.Errorf("error during listing: %w", err)
+		}
+		return len(files) > 0, nil
+
+	case "idrive":
+		ctx := context.Background()
+		idriveClient, err := strg.NewIDriveClient(ctx, "idrive")
+		if err != nil {
+			return false, fmt.Errorf("IDrive E2 config error: %w", err)
+		}
+
+		files, err := idriveClient.ListFiles(ctx, prefix)
 		if err != nil {
 			return false, fmt.Errorf("error during listing: %w", err)
 		}
@@ -228,4 +245,38 @@ func deleteAllFromB2(prefix string) {
 		}
 		fmt.Println("🗑️ Deleted:", file)
 	}
+}
+
+func deleteAllFromIDrive(prefix string) {
+	ctx := context.Background()
+	idriveClient, err := strg.NewIDriveClient(ctx, "idrive")
+	if err != nil {
+		fmt.Printf("❌ Failed to initialize IDrive E2 client: %v\n", err)
+		return
+	}
+
+	// List all files with the prefix
+	files, err := idriveClient.ListFiles(ctx, prefix)
+	if err != nil {
+		fmt.Printf("❌ Failed to list files from IDrive E2: %v\n", err)
+		return
+	}
+
+	if len(files) == 0 {
+		fmt.Println("📦 No files found to delete.")
+		return
+	}
+
+	// Delete each file
+	deletedCount := 0
+	for _, file := range files {
+		err := idriveClient.DeleteFile(ctx, file)
+		if err != nil {
+			fmt.Printf("⚠️  Failed to delete %s: %v\n", file, err)
+		} else {
+			deletedCount++
+		}
+	}
+
+	fmt.Printf("🗑️  Deleted %d files from IDrive E2\n", deletedCount)
 }

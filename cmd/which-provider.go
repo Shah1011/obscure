@@ -13,9 +13,10 @@ var whichProviderCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		// Mapping internal keys to user-friendly names
 		providers := map[string]string{
-			"s3":  "Amazon S3",
-			"gcs": "Google Cloud Storage",
-			"b2":  "Backblaze B2",
+			"s3":     "Amazon S3",
+			"gcs":    "Google Cloud Storage",
+			"b2":     "Backblaze B2",
+			"idrive": "IDrive E2",
 		}
 
 		// Get current session provider

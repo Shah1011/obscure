@@ -170,19 +170,35 @@ func isProviderConfigComplete(config *cfg.CloudProviderConfig) (bool, []string) 
 		if config.ApplicationKey == "" {
 			missing = append(missing, "application key")
 		}
+	case "idrive":
+		if config.Bucket == "" {
+			missing = append(missing, "bucket name")
+		}
+		if config.Region == "" {
+			missing = append(missing, "region")
+		}
+		if config.AccessKeyID == "" {
+			missing = append(missing, "access key ID")
+		}
+		if config.SecretAccessKey == "" {
+			missing = append(missing, "secret access key")
+		}
+		if config.IDriveEndpoint == "" {
+			missing = append(missing, "IDrive E2 endpoint")
+		}
 	}
 
 	return len(missing) == 0, missing
 }
 
 var addProviderCmd = &cobra.Command{
-	Use:   "add [s3|gcs|b2]",
+	Use:   "add [s3|gcs|b2|idrive]",
 	Short: "Add a new cloud storage provider",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		provider := strings.ToLower(args[0])
-		if provider != "s3" && provider != "gcs" && provider != "b2" {
-			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', or 'b2'")
+		if provider != "s3" && provider != "gcs" && provider != "b2" && provider != "idrive" {
+			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', 'b2', or 'idrive'")
 			return
 		}
 
@@ -202,56 +218,53 @@ var addProviderCmd = &cobra.Command{
 					fmt.Print("Do you want to update the configuration? (y/N): ")
 					var input string
 					fmt.Scanln(&input)
-					if strings.ToLower(strings.TrimSpace(input)) != "y" {
-						fmt.Println("❎ Provider configuration cancelled")
+					input = strings.TrimSpace(strings.ToLower(input))
+					if input != "y" && input != "yes" {
+						fmt.Println("❌ Configuration update cancelled.")
 						return
 					}
 				} else {
-					fmt.Printf("⚠️  Provider %s exists but is incomplete (missing: %s).\n",
-						strings.ToUpper(provider), strings.Join(missing, ", "))
-					fmt.Print("Do you want to complete the configuration? (y/N): ")
+					fmt.Printf("⚠️  Provider %s is configured but incomplete.\n", strings.ToUpper(provider))
+					fmt.Printf("   Missing: %s\n", strings.Join(missing, ", "))
+					fmt.Print("Do you want to update the configuration? (y/N): ")
 					var input string
 					fmt.Scanln(&input)
-					if strings.ToLower(strings.TrimSpace(input)) != "y" {
-						fmt.Println("❎ Provider configuration cancelled")
+					input = strings.TrimSpace(strings.ToLower(input))
+					if input != "y" && input != "yes" {
+						fmt.Println("❌ Configuration update cancelled.")
 						return
 					}
 				}
 			}
 		}
 
-		// Configure the provider based on type
+		// Configure provider based on type
+		var configErr error
 		switch provider {
 		case "s3":
-			if err := configureS3Provider(config); err != nil {
-				fmt.Printf("❌ S3 configuration failed: %v\n", err)
-				return
-			}
+			configErr = configureS3Provider(config)
 		case "gcs":
-			if err := configureGCSProvider(config); err != nil {
-				fmt.Printf("❌ GCS configuration failed: %v\n", err)
-				return
-			}
+			configErr = configureGCSProvider(config)
 		case "b2":
-			if err := configureB2Provider(config); err != nil {
-				fmt.Printf("❌ B2 configuration failed: %v\n", err)
-				return
-			}
+			configErr = configureB2Provider(config)
+		case "idrive":
+			configErr = configureIDriveProvider(config)
 		}
 
-		// Validate final configuration
+		if configErr != nil {
+			fmt.Printf("❌ Configuration failed: %v\n", configErr)
+			return
+		}
+
+		// Check if configuration is complete
 		isComplete, missing := isProviderConfigComplete(config)
-		if !isComplete {
-			fmt.Printf("❌ Configuration incomplete. Missing: %s\n", strings.Join(missing, ", "))
-			fmt.Println("Provider will remain disabled until configuration is complete.")
-			config.Enabled = false
-		} else {
+		if isComplete {
 			config.Enabled = true
 		}
 
-		// Save the configuration
+		// Save configuration
 		if err := cfg.AddProviderConfig(config); err != nil {
-			fmt.Printf("❌ Failed to save provider configuration: %v\n", err)
+			fmt.Printf("❌ Failed to save configuration: %v\n", err)
 			return
 		}
 
@@ -356,14 +369,56 @@ func configureB2Provider(config *cfg.CloudProviderConfig) error {
 	return nil
 }
 
+func configureIDriveProvider(config *cfg.CloudProviderConfig) error {
+	fmt.Println("\n🔧 Configure IDrive E2 storage:")
+
+	// Bucket name
+	bucket := readInput("Enter IDrive E2 bucket name: ")
+	if err := validateBucketName(bucket); err != nil {
+		return fmt.Errorf("invalid bucket name: %v", err)
+	}
+
+	// Region
+	region := readInput("Enter IDrive E2 region (e.g., us-east-1): ")
+	if err := validateRegion(region); err != nil {
+		return fmt.Errorf("invalid region: %v", err)
+	}
+
+	// Access Key ID
+	accessKey := readInput("Enter IDrive E2 access key ID: ")
+	if err := validateAccessKey(accessKey); err != nil {
+		return fmt.Errorf("invalid access key: %v", err)
+	}
+
+	// Secret Access Key
+	secretKey := readInput("Enter IDrive E2 secret access key: ")
+	if err := validateSecretKey(secretKey); err != nil {
+		return fmt.Errorf("invalid secret key: %v", err)
+	}
+
+	// Endpoint
+	endpoint := readInput("Enter IDrive E2 endpoint URL (e.g., https://api.idrive.com): ")
+	if err := validateEndpoint(endpoint); err != nil {
+		return fmt.Errorf("invalid endpoint: %v", err)
+	}
+
+	config.Bucket = bucket
+	config.Region = region
+	config.AccessKeyID = accessKey
+	config.SecretAccessKey = secretKey
+	config.IDriveEndpoint = endpoint
+
+	return nil
+}
+
 var removeProviderCmd = &cobra.Command{
-	Use:   "remove [s3|gcs|b2]",
+	Use:   "remove [s3|gcs|b2|idrive]",
 	Short: "Remove a cloud storage provider",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		provider := strings.ToLower(args[0])
-		if provider != "s3" && provider != "gcs" && provider != "b2" {
-			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', or 'b2'")
+		if provider != "s3" && provider != "gcs" && provider != "b2" && provider != "idrive" {
+			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', 'b2', or 'idrive'")
 			return
 		}
 
@@ -442,6 +497,10 @@ var listCmd = &cobra.Command{
 			} else if config.Provider == "b2" {
 				fmt.Printf("    Bucket: %s\n", config.Bucket)
 				fmt.Printf("    Endpoint: %s\n", config.Endpoint)
+			} else if config.Provider == "idrive" {
+				fmt.Printf("    Bucket: %s\n", config.Bucket)
+				fmt.Printf("    Region: %s\n", config.Region)
+				fmt.Printf("    Endpoint: %s\n", config.IDriveEndpoint)
 			}
 		}
 	},

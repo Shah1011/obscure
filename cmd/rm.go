@@ -59,6 +59,8 @@ var rmCmd = &cobra.Command{
 			deleteFromS3(bucket, key)
 		case "b2":
 			deleteFromB2(key)
+		case "idrive":
+			deleteFromIDrive(bucket, key)
 		default:
 			fmt.Println("❌ Unknown provider:", providerKey)
 		}
@@ -155,6 +157,23 @@ func deleteFromB2(key string) {
 		fmt.Println("❌ Failed to delete:", err)
 		return
 	}
+	fmt.Println("🗑️  Deleted:", key)
+}
+
+func deleteFromIDrive(bucket, key string) {
+	ctx := context.Background()
+	idriveClient, err := strg.NewIDriveClient(ctx, "idrive")
+	if err != nil {
+		fmt.Printf("❌ Failed to initialize IDrive E2 client: %v\n", err)
+		return
+	}
+
+	err = idriveClient.DeleteFile(ctx, key)
+	if err != nil {
+		fmt.Printf("❌ Failed to delete from IDrive E2: %v\n", err)
+		return
+	}
+
 	fmt.Println("🗑️  Deleted:", key)
 }
 

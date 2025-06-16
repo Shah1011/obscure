@@ -60,8 +60,8 @@ var signupCmd = &cobra.Command{
 		}
 
 		// Step 4: Prompt for default cloud provider
-		providers := []string{"Amazon S3", "Google Cloud Storage"}
-		providerKeys := []string{"s3", "gcs"}
+		providers := []string{"Amazon S3", "Google Cloud Storage", "Backblaze B2", "IDrive E2"}
+		providerKeys := []string{"s3", "gcs", "b2", "idrive"}
 
 		underline := "\033[4m"
 		reset := "\033[0m"
@@ -141,6 +141,66 @@ var signupCmd = &cobra.Command{
 
 			config.ProjectID = projectID
 			config.ServiceAccount = serviceAccountPath
+		case "b2":
+			fmt.Println("\n🔧 Configure your Backblaze B2 storage:")
+			bucket, err := utils.PromptLine("Enter B2 bucket name: ")
+			if err != nil {
+				fmt.Println("❌ Invalid bucket name")
+				return
+			}
+			endpoint, err := utils.PromptLine("Enter B2 endpoint URL (e.g., https://s3.us-west-002.backblazeb2.com): ")
+			if err != nil {
+				fmt.Println("❌ Invalid endpoint")
+				return
+			}
+			appKeyID, err := utils.PromptLine("Enter B2 Application Key ID: ")
+			if err != nil {
+				fmt.Println("❌ Invalid application key ID")
+				return
+			}
+			appKey, err := utils.PromptPassword("Enter B2 Application Key: ")
+			if err != nil {
+				fmt.Println("❌ Invalid application key")
+				return
+			}
+
+			config.Bucket = bucket
+			config.Endpoint = endpoint
+			config.ApplicationKeyID = appKeyID
+			config.ApplicationKey = appKey
+		case "idrive":
+			fmt.Println("\n🔧 Configure your IDrive E2 storage:")
+			bucket, err := utils.PromptLine("Enter IDrive E2 bucket name: ")
+			if err != nil {
+				fmt.Println("❌ Invalid bucket name")
+				return
+			}
+			region, err := utils.PromptLine("Enter IDrive E2 region (e.g., us-east-1): ")
+			if err != nil {
+				fmt.Println("❌ Invalid region")
+				return
+			}
+			accessKey, err := utils.PromptLine("Enter IDrive E2 access key ID: ")
+			if err != nil {
+				fmt.Println("❌ Invalid access key")
+				return
+			}
+			secretKey, err := utils.PromptPassword("Enter IDrive E2 secret access key: ")
+			if err != nil {
+				fmt.Println("❌ Invalid secret key")
+				return
+			}
+			endpoint, err := utils.PromptLine("Enter IDrive E2 endpoint URL (e.g., https://api.idrive.com): ")
+			if err != nil {
+				fmt.Println("❌ Invalid endpoint")
+				return
+			}
+
+			config.Bucket = bucket
+			config.Region = region
+			config.AccessKeyID = accessKey
+			config.SecretAccessKey = secretKey
+			config.IDriveEndpoint = endpoint
 		}
 
 		// Save provider configuration locally
