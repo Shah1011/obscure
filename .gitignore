@@ -1,7 +1,6 @@
 # Sensitive information
 service-account.json
 serviceAccountKey.json
-Obscure.png
 .env
 *.key
 *.pem
