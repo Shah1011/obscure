@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  obscure-cli:
+    image: ghcr.io/shah1011/obscure-cli
+    volumes:
+      - ./.env:/app/.env
+      - ./firebase-key.json:/root/firebase.json
+    environment:
+      - FIREBASE_API_KEY=${FIREBASE_API_KEY}
+      - FIREBASE_CREDENTIALS=/root/firebase.json
+    stdin_open: true
+    tty: true 
+
