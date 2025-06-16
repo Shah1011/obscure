@@ -30,7 +30,7 @@ to quickly create a Cobra application.`,
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	if err := godotenv.Load(); err != nil {
-		log.Fatalf("Error loading .env file: %v", err)
+		log.Println("⚠️  .env file not found or couldn't be loaded. Falling back to default env vars.")
 	}
 
 	if err := rootCmd.Execute(); err != nil {
