@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 
 	"bytes"
@@ -18,7 +19,11 @@ import (
 
 func CheckIfGCSObjectExists(bucket, object string) (bool, error) {
 	ctx := context.Background()
-	client, err := storage.NewClient(ctx, option.WithCredentialsFile(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")))
+	credPath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	if credPath == "" {
+		log.Fatal("GOOGLE_APPLICATION_CREDENTIALS not set. Please export the path to your GCP service account JSON.")
+	}
+	client, err := storage.NewClient(ctx, option.WithCredentialsFile(credPath))
 	if err != nil {
 		return false, fmt.Errorf("failed to create GCS client: %w", err)
 	}

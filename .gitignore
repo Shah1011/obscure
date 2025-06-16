@@ -4,6 +4,7 @@ serviceAccountKey.json
 .env
 *.key
 *.pem
+*.log
 credentials/
 .env.*
 .obscure/
@@ -60,4 +61,3 @@ go.work
 restored_*/
 obscure-backend/
 firebaseServiceAccountKey.json
-
