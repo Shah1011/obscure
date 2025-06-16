@@ -186,19 +186,35 @@ func isProviderConfigComplete(config *cfg.CloudProviderConfig) (bool, []string) 
 		if config.IDriveEndpoint == "" {
 			missing = append(missing, "IDrive E2 endpoint")
 		}
+	case "s3-compatible":
+		if config.Bucket == "" {
+			missing = append(missing, "bucket name")
+		}
+		if config.Region == "" {
+			missing = append(missing, "region")
+		}
+		if config.AccessKeyID == "" {
+			missing = append(missing, "access key ID")
+		}
+		if config.SecretAccessKey == "" {
+			missing = append(missing, "secret access key")
+		}
+		if config.S3CompatibleEndpoint == "" {
+			missing = append(missing, "S3-compatible endpoint")
+		}
 	}
 
 	return len(missing) == 0, missing
 }
 
 var addProviderCmd = &cobra.Command{
-	Use:   "add [s3|gcs|b2|idrive]",
+	Use:   "add [s3|gcs|b2|idrive|s3-compatible]",
 	Short: "Add a new cloud storage provider",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		provider := strings.ToLower(args[0])
-		if provider != "s3" && provider != "gcs" && provider != "b2" && provider != "idrive" {
-			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', 'b2', or 'idrive'")
+		if provider != "s3" && provider != "gcs" && provider != "b2" && provider != "idrive" && provider != "s3-compatible" {
+			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', 'b2', 'idrive', or 's3-compatible'")
 			return
 		}
 
@@ -249,6 +265,8 @@ var addProviderCmd = &cobra.Command{
 			configErr = configureB2Provider(config)
 		case "idrive":
 			configErr = configureIDriveProvider(config)
+		case "s3-compatible":
+			configErr = configureS3CompatibleProvider(config)
 		}
 
 		if configErr != nil {
@@ -411,14 +429,63 @@ func configureIDriveProvider(config *cfg.CloudProviderConfig) error {
 	return nil
 }
 
+func configureS3CompatibleProvider(config *cfg.CloudProviderConfig) error {
+	fmt.Println("\n🔧 Configure S3-compatible storage (e.g., Wasabi, DigitalOcean Spaces, MinIO, etc.):")
+
+	// Custom name
+	customName := readInput("Enter a name for this provider (e.g., Wasabi, DigitalOcean, MinIO): ")
+	if strings.TrimSpace(customName) == "" {
+		return fmt.Errorf("custom name cannot be empty")
+	}
+
+	// Bucket name
+	bucket := readInput("Enter bucket name: ")
+	if err := validateBucketName(bucket); err != nil {
+		return fmt.Errorf("invalid bucket name: %v", err)
+	}
+
+	// Region
+	region := readInput("Enter region (e.g., us-east-1): ")
+	if err := validateRegion(region); err != nil {
+		return fmt.Errorf("invalid region: %v", err)
+	}
+
+	// Access Key ID
+	accessKey := readInput("Enter Access Key ID: ")
+	if err := validateAccessKey(accessKey); err != nil {
+		return fmt.Errorf("invalid access key: %v", err)
+	}
+
+	// Secret Access Key
+	secretKey := readInput("Enter Secret Access Key: ")
+	if err := validateSecretKey(secretKey); err != nil {
+		return fmt.Errorf("invalid secret key: %v", err)
+	}
+
+	// Endpoint
+	endpoint := readInput("Enter S3-compatible endpoint URL (e.g., https://s3.wasabisys.com): ")
+	if err := validateEndpoint(endpoint); err != nil {
+		return fmt.Errorf("invalid endpoint: %v", err)
+	}
+
+	config.CustomName = customName
+	config.Bucket = bucket
+	config.Region = region
+	config.AccessKeyID = accessKey
+	config.SecretAccessKey = secretKey
+	config.S3CompatibleEndpoint = endpoint
+
+	return nil
+}
+
 var removeProviderCmd = &cobra.Command{
-	Use:   "remove [s3|gcs|b2|idrive]",
+	Use:   "remove [s3|gcs|b2|idrive|s3-compatible]",
 	Short: "Remove a cloud storage provider",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		provider := strings.ToLower(args[0])
-		if provider != "s3" && provider != "gcs" && provider != "b2" && provider != "idrive" {
-			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', 'b2', or 'idrive'")
+		if provider != "s3" && provider != "gcs" && provider != "b2" && provider != "idrive" && provider != "s3-compatible" {
+			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', 'b2', 'idrive', or 's3-compatible'")
 			return
 		}
 
@@ -501,6 +568,11 @@ var listCmd = &cobra.Command{
 				fmt.Printf("    Bucket: %s\n", config.Bucket)
 				fmt.Printf("    Region: %s\n", config.Region)
 				fmt.Printf("    Endpoint: %s\n", config.IDriveEndpoint)
+			} else if config.Provider == "s3-compatible" {
+				fmt.Printf("    Name: %s\n", config.CustomName)
+				fmt.Printf("    Bucket: %s\n", config.Bucket)
+				fmt.Printf("    Region: %s\n", config.Region)
+				fmt.Printf("    Endpoint: %s\n", config.S3CompatibleEndpoint)
 			}
 		}
 	},

@@ -484,6 +484,42 @@ var backupCmd = &cobra.Command{
 				return
 			}
 
+		case "s3-compatible":
+			// Initialize S3-compatible client
+			ctx := context.Background()
+			s3CompatibleClient, err := strg.NewS3CompatibleClient(ctx, "s3-compatible")
+			if err != nil {
+				fmt.Printf("❌ Failed to initialize S3-compatible client: %v\n", err)
+				return
+			}
+
+			// Check if object exists
+			exists, err := s3CompatibleClient.FileExists(ctx, key)
+			if err != nil {
+				fmt.Printf("❌ Failed to check if backup exists: %v\n", err)
+				return
+			}
+			if exists {
+				fmt.Println("❌ A backup with this name already exists")
+				return
+			}
+
+			// Upload to S3-compatible with spinner
+			err = uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+				metadata := map[string]string{
+					"username":  username,
+					"tag":       tag,
+					"version":   version,
+					"is_direct": fmt.Sprintf("%v", isDirect),
+				}
+
+				return s3CompatibleClient.UploadFile(ctx, key, reader, metadata)
+			})
+			if err != nil {
+				fmt.Printf("\n❌ Failed to upload to S3-compatible: %v\n", err)
+				return
+			}
+
 		default:
 			fmt.Printf("❌ Unsupported provider: %s\n", providerKey)
 			return

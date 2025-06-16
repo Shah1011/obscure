@@ -148,10 +148,11 @@ You can also combine both formats, but the flags will take precedence.`,
 		bucket := config.Bucket
 
 		providerNames := map[string]string{
-			"s3":     "Amazon S3",
-			"gcs":    "Google Cloud Storage",
-			"b2":     "Backblaze B2",
-			"idrive": "IDrive E2",
+			"s3":            "Amazon S3",
+			"gcs":           "Google Cloud Storage",
+			"b2":            "Backblaze B2",
+			"idrive":        "IDrive E2",
+			"s3-compatible": "S3-compatible",
 		}
 		providerDisplayName := providerNames[provider]
 		if providerDisplayName == "" {
@@ -228,6 +229,24 @@ You can also combine both formats, but the flags will take precedence.`,
 			}
 
 			rawReader, err = utils.DownloadFromIDriveStream(bucket, key)
+			if err != nil {
+				fmt.Println("❌ Failed to download backup:", err)
+				return
+			}
+
+		case "s3-compatible":
+			fmt.Println("🔽 Downloading backup from S3-compatible storage...")
+			size, err = utils.GetS3CompatibleObjectSize(bucket, key)
+			if err != nil {
+				if strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "not found") {
+					fmt.Printf("❌ No backup found for tag '%s' and version '%s' in S3-compatible storage.\n", restoreTag, restoreVersion)
+				} else {
+					fmt.Println("❌ Could not get backup size:", err)
+				}
+				return
+			}
+
+			rawReader, err = utils.DownloadFromS3CompatibleStream(bucket, key)
 			if err != nil {
 				fmt.Println("❌ Failed to download backup:", err)
 				return

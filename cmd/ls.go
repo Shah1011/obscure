@@ -52,6 +52,9 @@ var lsCmd = &cobra.Command{
 		case "idrive":
 			prefix := fmt.Sprintf("backups/%s/", username)
 			listFromIDrive(prefix)
+		case "s3-compatible":
+			prefix := fmt.Sprintf("backups/%s/", username)
+			listFromS3Compatible(prefix)
 		default:
 			fmt.Printf("❌ Unknown provider: %s\n", providerKey)
 		}
@@ -518,6 +521,121 @@ func listFromIDrive(prefix string) {
 		// For IDrive E2, we'll need to get metadata differently since it's S3-compatible
 		// For now, we'll assume all files are not direct backups
 		// TODO: Implement proper metadata retrieval for IDrive E2
+		metadata[file] = false
+	}
+
+	printBackups(files, metadata)
+}
+
+func listFromS3Compatible(prefix string) {
+	ctx := context.Background()
+	s3CompatibleClient, err := strg.NewS3CompatibleClient(ctx, "s3-compatible")
+	if err != nil {
+		// Check if it's a configuration error and provide helpful guidance
+		if strings.Contains(err.Error(), "configuration incomplete") {
+			fmt.Println("❌ S3-compatible provider is not properly configured.")
+			fmt.Println("   Missing required configuration fields.")
+			fmt.Println("   Run: ./obscure provider add s3-compatible")
+			fmt.Println("   Or check configuration with: ./obscure provider list")
+			return
+		}
+		if strings.Contains(err.Error(), "not configured") {
+			fmt.Println("❌ S3-compatible provider is not configured.")
+			fmt.Println("   Run: ./obscure provider add s3-compatible")
+			return
+		}
+		if strings.Contains(err.Error(), "disabled") {
+			fmt.Println("❌ S3-compatible provider is disabled.")
+			fmt.Println("   Complete the configuration to enable it.")
+			fmt.Println("   Run: ./obscure provider add s3-compatible")
+			return
+		}
+		fmt.Println("❌ Failed to load S3-compatible config:", err)
+		return
+	}
+
+	// List files using S3-compatible client
+	files, err := s3CompatibleClient.ListFiles(ctx, prefix)
+	if err != nil {
+		// Comprehensive error handling for S3-compatible-specific issues
+		errMsg := err.Error()
+
+		// Check for endpoint/URL issues
+		if strings.Contains(errMsg, "tls: failed to verify certificate") {
+			fmt.Println("❌ S3-compatible endpoint certificate verification failed.")
+			fmt.Println("   This usually means the endpoint URL is incorrect.")
+			fmt.Println("   Check your S3-compatible bucket's endpoint.")
+			fmt.Println("   Run: ./obscure provider add s3-compatible to update the endpoint")
+			return
+		}
+
+		if strings.Contains(errMsg, "no such host") || strings.Contains(errMsg, "dial tcp") {
+			fmt.Println("❌ Cannot connect to S3-compatible endpoint.")
+			fmt.Println("   Possible issues:")
+			fmt.Println("   - Incorrect endpoint URL")
+			fmt.Println("   - Network connectivity problem")
+			fmt.Println("   - S3-compatible service is down")
+			fmt.Println("   Run: ./obscure provider add s3-compatible to check/update endpoint")
+			return
+		}
+
+		if strings.Contains(errMsg, "exceeded maximum number of attempts") {
+			fmt.Println("❌ S3-compatible connection timeout.")
+			fmt.Println("   Possible issues:")
+			fmt.Println("   - Incorrect endpoint URL")
+			fmt.Println("   - Network connectivity problem")
+			fmt.Println("   - S3-compatible service is slow or down")
+			fmt.Println("   Run: ./obscure provider add s3-compatible to check/update endpoint")
+			return
+		}
+
+		if strings.Contains(errMsg, "InvalidAccessKeyId") {
+			fmt.Println("❌ Invalid S3-compatible Access Key ID.")
+			fmt.Println("   Check your S3-compatible Access Key ID.")
+			fmt.Println("   Run: ./obscure provider add s3-compatible to update credentials")
+			return
+		}
+
+		if strings.Contains(errMsg, "SignatureDoesNotMatch") {
+			fmt.Println("❌ Invalid S3-compatible Secret Access Key.")
+			fmt.Println("   Check your S3-compatible Secret Access Key.")
+			fmt.Println("   Run: ./obscure provider add s3-compatible to update credentials")
+			return
+		}
+
+		if strings.Contains(errMsg, "NoSuchBucket") {
+			fmt.Println("❌ S3-compatible bucket not found.")
+			fmt.Println("   Check your bucket name.")
+			fmt.Println("   Run: ./obscure provider add s3-compatible to update bucket name")
+			return
+		}
+
+		if strings.Contains(errMsg, "AccessDenied") {
+			fmt.Println("❌ Access denied to S3-compatible bucket.")
+			fmt.Println("   Possible issues:")
+			fmt.Println("   - Incorrect credentials")
+			fmt.Println("   - Bucket doesn't exist")
+			fmt.Println("   - Credentials don't have access to this bucket")
+			fmt.Println("   Check your S3-compatible credentials.")
+			return
+		}
+
+		// Generic error with suggestion to check configuration
+		fmt.Println("❌ Failed to list S3-compatible backups:", err)
+		fmt.Println("   This might be due to:")
+		fmt.Println("   - Incorrect endpoint URL")
+		fmt.Println("   - Invalid credentials")
+		fmt.Println("   - Network connectivity issues")
+		fmt.Println("   Run: ./obscure provider add s3-compatible to reconfigure")
+		return
+	}
+
+	// Get metadata for each file
+	metadata := make(map[string]bool)
+	for _, file := range files {
+		// For S3-compatible, we'll need to get metadata differently since it's S3-compatible
+		// For now, we'll assume all files are not direct backups
+		// TODO: Implement proper metadata retrieval for S3-compatible
 		metadata[file] = false
 	}
 

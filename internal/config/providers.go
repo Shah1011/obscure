@@ -9,7 +9,7 @@ import (
 )
 
 type CloudProviderConfig struct {
-	Provider string `json:"provider"` // "s3", "gcs", "b2", or "idrive"
+	Provider string `json:"provider"` // "s3", "gcs", "b2", "idrive", or "s3-compatible"
 	Enabled  bool   `json:"enabled"`
 	// S3 specific fields
 	Bucket          string `json:"bucket,omitempty"`
@@ -25,6 +25,9 @@ type CloudProviderConfig struct {
 	Endpoint         string `json:"endpoint,omitempty"` // B2 endpoint URL
 	// IDrive E2 specific fields (S3-compatible)
 	IDriveEndpoint string `json:"idrive_endpoint,omitempty"` // IDrive E2 endpoint URL
+	// S3-compatible generic fields
+	S3CompatibleEndpoint string `json:"s3_compatible_endpoint,omitempty"` // Custom S3-compatible endpoint URL
+	CustomName           string `json:"custom_name,omitempty"`            // Custom name for S3-compatible provider
 }
 
 type UserProviders struct {
@@ -90,6 +93,25 @@ func IsProviderConfigComplete(config *CloudProviderConfig) (bool, []string) {
 		}
 		if strings.TrimSpace(config.IDriveEndpoint) == "" {
 			missing = append(missing, "IDrive E2 endpoint")
+		}
+	case "s3-compatible":
+		if strings.TrimSpace(config.Bucket) == "" {
+			missing = append(missing, "bucket name")
+		}
+		if strings.TrimSpace(config.Region) == "" {
+			missing = append(missing, "region")
+		}
+		if strings.TrimSpace(config.AccessKeyID) == "" {
+			missing = append(missing, "access key ID")
+		}
+		if strings.TrimSpace(config.SecretAccessKey) == "" {
+			missing = append(missing, "secret access key")
+		}
+		if strings.TrimSpace(config.S3CompatibleEndpoint) == "" {
+			missing = append(missing, "S3-compatible endpoint")
+		}
+		if strings.TrimSpace(config.CustomName) == "" {
+			missing = append(missing, "custom name")
 		}
 	}
 

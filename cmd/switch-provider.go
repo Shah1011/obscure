@@ -15,8 +15,8 @@ var switchProviderCmd = &cobra.Command{
 	Use:   "switch-provider",
 	Short: "Switch the active cloud provider for this session",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		providers := []string{"Amazon S3", "Google Cloud Storage", "Backblaze B2", "IDrive E2"}
-		providerKeys := []string{"s3", "gcs", "b2", "idrive"}
+		providers := []string{"Amazon S3", "Google Cloud Storage", "Backblaze B2", "IDrive E2", "S3-compatible"}
+		providerKeys := []string{"s3", "gcs", "b2", "idrive", "s3-compatible"}
 
 		// Get flag value
 		defaultFlag, err := cmd.Flags().GetString("default")

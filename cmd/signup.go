@@ -60,8 +60,8 @@ var signupCmd = &cobra.Command{
 		}
 
 		// Step 4: Prompt for default cloud provider
-		providers := []string{"Amazon S3", "Google Cloud Storage", "Backblaze B2", "IDrive E2"}
-		providerKeys := []string{"s3", "gcs", "b2", "idrive"}
+		providers := []string{"Amazon S3", "Google Cloud Storage", "Backblaze B2", "IDrive E2", "S3-compatible"}
+		providerKeys := []string{"s3", "gcs", "b2", "idrive", "s3-compatible"}
 
 		underline := "\033[4m"
 		reset := "\033[0m"
@@ -201,6 +201,45 @@ var signupCmd = &cobra.Command{
 			config.AccessKeyID = accessKey
 			config.SecretAccessKey = secretKey
 			config.IDriveEndpoint = endpoint
+		case "s3-compatible":
+			fmt.Println("\n🔧 Configure your S3-compatible storage:")
+			customName, err := utils.PromptLine("Enter a name for this provider (e.g., Wasabi, DigitalOcean, MinIO): ")
+			if err != nil {
+				fmt.Println("❌ Invalid custom name")
+				return
+			}
+			bucket, err := utils.PromptLine("Enter bucket name: ")
+			if err != nil {
+				fmt.Println("❌ Invalid bucket name")
+				return
+			}
+			region, err := utils.PromptLine("Enter region (e.g., us-east-1): ")
+			if err != nil {
+				fmt.Println("❌ Invalid region")
+				return
+			}
+			accessKey, err := utils.PromptLine("Enter Access Key ID: ")
+			if err != nil {
+				fmt.Println("❌ Invalid access key")
+				return
+			}
+			secretKey, err := utils.PromptPassword("Enter Secret Access Key: ")
+			if err != nil {
+				fmt.Println("❌ Invalid secret key")
+				return
+			}
+			endpoint, err := utils.PromptLine("Enter S3-compatible endpoint URL (e.g., https://s3.wasabisys.com): ")
+			if err != nil {
+				fmt.Println("❌ Invalid endpoint")
+				return
+			}
+
+			config.CustomName = customName
+			config.Bucket = bucket
+			config.Region = region
+			config.AccessKeyID = accessKey
+			config.SecretAccessKey = secretKey
+			config.S3CompatibleEndpoint = endpoint
 		}
 
 		// Save provider configuration locally
