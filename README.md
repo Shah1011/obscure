@@ -1,5 +1,7 @@
 # Obscure
 
+![Obscure Logo](Obscure.png)
+
 A secure, encrypted backup tool that supports multiple cloud storage providers. Obscure allows you to create encrypted backups of your data and store them in your own cloud storage buckets (BYOB - Bring Your Own Bucket).
 
 ## Features
