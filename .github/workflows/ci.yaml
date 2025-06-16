@@ -9,6 +9,10 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      packages: write  # Needed for pushing to GHCR
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
@@ -31,3 +35,14 @@ jobs:
       run: |
         echo "${{ secrets.FIREBASE_SERVICE_ACCOUNT_B64 }}" | base64 -d > firebase-key.json
         echo "FIREBASE_CREDENTIALS=$(pwd)/firebase-key.json" >> $GITHUB_ENV
+
+    - name: Log in to GitHub Container Registry
+      run: echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+    - name: Build Docker image
+      run: |
+        docker build -t ghcr.io/${{ github.repository_owner }}/obscure-cli:latest .
+
+    - name: Push Docker image
+      run: |
+        docker push ghcr.io/${{ github.repository_owner }}/obscure-cli:latest
