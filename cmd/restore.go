@@ -153,6 +153,7 @@ You can also combine both formats, but the flags will take precedence.`,
 			"b2":            "Backblaze B2",
 			"idrive":        "IDrive E2",
 			"s3-compatible": "S3-compatible",
+			"storj":         "Storj",
 		}
 		providerDisplayName := providerNames[provider]
 		if providerDisplayName == "" {
@@ -247,6 +248,24 @@ You can also combine both formats, but the flags will take precedence.`,
 			}
 
 			rawReader, err = utils.DownloadFromS3CompatibleStream(bucket, key)
+			if err != nil {
+				fmt.Println("❌ Failed to download backup:", err)
+				return
+			}
+
+		case "storj":
+			fmt.Println("🔽 Downloading backup from Storj...")
+			size, err = utils.GetStorjObjectSize(bucket, key)
+			if err != nil {
+				if strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "not found") {
+					fmt.Printf("❌ No backup found for tag '%s' and version '%s' in Storj.\n", restoreTag, restoreVersion)
+				} else {
+					fmt.Println("❌ Could not get backup size:", err)
+				}
+				return
+			}
+
+			rawReader, err = utils.DownloadFromStorjStream(bucket, key)
 			if err != nil {
 				fmt.Println("❌ Failed to download backup:", err)
 				return

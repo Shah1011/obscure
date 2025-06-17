@@ -520,6 +520,42 @@ var backupCmd = &cobra.Command{
 				return
 			}
 
+		case "storj":
+			// Initialize Storj client
+			ctx := context.Background()
+			storjClient, err := strg.NewStorjClient(ctx, "storj")
+			if err != nil {
+				fmt.Printf("❌ Failed to initialize Storj client: %v\n", err)
+				return
+			}
+
+			// Check if object exists
+			exists, err := storjClient.FileExists(ctx, key)
+			if err != nil {
+				fmt.Printf("❌ Failed to check if backup exists: %v\n", err)
+				return
+			}
+			if exists {
+				fmt.Println("❌ A backup with this name already exists")
+				return
+			}
+
+			// Upload to Storj with spinner
+			err = uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+				metadata := map[string]string{
+					"username":  username,
+					"tag":       tag,
+					"version":   version,
+					"is_direct": fmt.Sprintf("%v", isDirect),
+				}
+
+				return storjClient.UploadFile(ctx, key, reader, metadata)
+			})
+			if err != nil {
+				fmt.Printf("\n❌ Failed to upload to Storj: %v\n", err)
+				return
+			}
+
 		default:
 			fmt.Printf("❌ Unsupported provider: %s\n", providerKey)
 			return

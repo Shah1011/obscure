@@ -202,19 +202,35 @@ func isProviderConfigComplete(config *cfg.CloudProviderConfig) (bool, []string) 
 		if config.S3CompatibleEndpoint == "" {
 			missing = append(missing, "S3-compatible endpoint")
 		}
+	case "storj":
+		if config.Bucket == "" {
+			missing = append(missing, "bucket name")
+		}
+		if config.Region == "" {
+			missing = append(missing, "region")
+		}
+		if config.AccessKeyID == "" {
+			missing = append(missing, "access key ID")
+		}
+		if config.SecretAccessKey == "" {
+			missing = append(missing, "secret access key")
+		}
+		if config.StorjEndpoint == "" {
+			missing = append(missing, "Storj endpoint")
+		}
 	}
 
 	return len(missing) == 0, missing
 }
 
 var addProviderCmd = &cobra.Command{
-	Use:   "add [s3|gcs|b2|idrive|s3-compatible]",
+	Use:   "add [s3|gcs|b2|idrive|s3-compatible|storj]",
 	Short: "Add a new cloud storage provider",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		provider := strings.ToLower(args[0])
-		if provider != "s3" && provider != "gcs" && provider != "b2" && provider != "idrive" && provider != "s3-compatible" {
-			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', 'b2', 'idrive', or 's3-compatible'")
+		if provider != "s3" && provider != "gcs" && provider != "b2" && provider != "idrive" && provider != "s3-compatible" && provider != "storj" {
+			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', 'b2', 'idrive', 's3-compatible', or 'storj'")
 			return
 		}
 
@@ -267,6 +283,8 @@ var addProviderCmd = &cobra.Command{
 			configErr = configureIDriveProvider(config)
 		case "s3-compatible":
 			configErr = configureS3CompatibleProvider(config)
+		case "storj":
+			configErr = configureStorjProvider(config)
 		}
 
 		if configErr != nil {
@@ -478,14 +496,56 @@ func configureS3CompatibleProvider(config *cfg.CloudProviderConfig) error {
 	return nil
 }
 
+func configureStorjProvider(config *cfg.CloudProviderConfig) error {
+	fmt.Println("\n🔧 Configure Storj storage:")
+
+	// Bucket name
+	bucket := readInput("Enter Storj bucket name: ")
+	if err := validateBucketName(bucket); err != nil {
+		return fmt.Errorf("invalid bucket name: %v", err)
+	}
+
+	// Region
+	region := readInput("Enter Storj region (e.g., us-east-1): ")
+	if err := validateRegion(region); err != nil {
+		return fmt.Errorf("invalid region: %v", err)
+	}
+
+	// Access Key ID
+	accessKey := readInput("Enter Storj access key ID: ")
+	if err := validateAccessKey(accessKey); err != nil {
+		return fmt.Errorf("invalid access key: %v", err)
+	}
+
+	// Secret Access Key
+	secretKey := readInput("Enter Storj secret access key: ")
+	if err := validateSecretKey(secretKey); err != nil {
+		return fmt.Errorf("invalid secret key: %v", err)
+	}
+
+	// Endpoint
+	endpoint := readInput("Enter Storj endpoint URL (e.g., https://gateway.storjshare.io): ")
+	if err := validateEndpoint(endpoint); err != nil {
+		return fmt.Errorf("invalid endpoint: %v", err)
+	}
+
+	config.Bucket = bucket
+	config.Region = region
+	config.AccessKeyID = accessKey
+	config.SecretAccessKey = secretKey
+	config.StorjEndpoint = endpoint
+
+	return nil
+}
+
 var removeProviderCmd = &cobra.Command{
-	Use:   "remove [s3|gcs|b2|idrive|s3-compatible]",
+	Use:   "remove [s3|gcs|b2|idrive|s3-compatible|storj]",
 	Short: "Remove a cloud storage provider",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		provider := strings.ToLower(args[0])
-		if provider != "s3" && provider != "gcs" && provider != "b2" && provider != "idrive" && provider != "s3-compatible" {
-			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', 'b2', 'idrive', or 's3-compatible'")
+		if provider != "s3" && provider != "gcs" && provider != "b2" && provider != "idrive" && provider != "s3-compatible" && provider != "storj" {
+			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', 'b2', 'idrive', 's3-compatible', or 'storj'")
 			return
 		}
 
@@ -573,6 +633,10 @@ var listCmd = &cobra.Command{
 				fmt.Printf("    Bucket: %s\n", config.Bucket)
 				fmt.Printf("    Region: %s\n", config.Region)
 				fmt.Printf("    Endpoint: %s\n", config.S3CompatibleEndpoint)
+			} else if config.Provider == "storj" {
+				fmt.Printf("    Bucket: %s\n", config.Bucket)
+				fmt.Printf("    Region: %s\n", config.Region)
+				fmt.Printf("    Endpoint: %s\n", config.StorjEndpoint)
 			}
 		}
 	},

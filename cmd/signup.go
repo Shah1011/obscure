@@ -60,8 +60,8 @@ var signupCmd = &cobra.Command{
 		}
 
 		// Step 4: Prompt for default cloud provider
-		providers := []string{"Amazon S3", "Google Cloud Storage", "Backblaze B2", "IDrive E2", "S3-compatible"}
-		providerKeys := []string{"s3", "gcs", "b2", "idrive", "s3-compatible"}
+		providers := []string{"Amazon S3", "Google Cloud Storage", "Backblaze B2", "IDrive E2", "S3-compatible", "Storj"}
+		providerKeys := []string{"s3", "gcs", "b2", "idrive", "s3-compatible", "storj"}
 
 		underline := "\033[4m"
 		reset := "\033[0m"
@@ -240,6 +240,39 @@ var signupCmd = &cobra.Command{
 			config.AccessKeyID = accessKey
 			config.SecretAccessKey = secretKey
 			config.S3CompatibleEndpoint = endpoint
+		case "storj":
+			fmt.Println("\n🔧 Configure your Storj storage:")
+			bucket, err := utils.PromptLine("Enter Storj bucket name: ")
+			if err != nil {
+				fmt.Println("❌ Invalid bucket name")
+				return
+			}
+			region, err := utils.PromptLine("Enter Storj region (e.g., us-east-1): ")
+			if err != nil {
+				fmt.Println("❌ Invalid region")
+				return
+			}
+			accessKey, err := utils.PromptLine("Enter Storj access key ID: ")
+			if err != nil {
+				fmt.Println("❌ Invalid access key")
+				return
+			}
+			secretKey, err := utils.PromptPassword("Enter Storj secret access key: ")
+			if err != nil {
+				fmt.Println("❌ Invalid secret key")
+				return
+			}
+			endpoint, err := utils.PromptLine("Enter Storj endpoint URL (e.g., https://gateway.storjshare.io): ")
+			if err != nil {
+				fmt.Println("❌ Invalid endpoint")
+				return
+			}
+
+			config.Bucket = bucket
+			config.Region = region
+			config.AccessKeyID = accessKey
+			config.SecretAccessKey = secretKey
+			config.StorjEndpoint = endpoint
 		}
 
 		// Save provider configuration locally

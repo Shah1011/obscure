@@ -18,6 +18,7 @@ var whichProviderCmd = &cobra.Command{
 			"b2":            "Backblaze B2",
 			"idrive":        "IDrive E2",
 			"s3-compatible": "S3-compatible",
+			"storj":         "Storj",
 		}
 
 		// Get current session provider

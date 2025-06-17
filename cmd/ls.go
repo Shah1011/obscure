@@ -55,6 +55,9 @@ var lsCmd = &cobra.Command{
 		case "s3-compatible":
 			prefix := fmt.Sprintf("backups/%s/", username)
 			listFromS3Compatible(prefix)
+		case "storj":
+			prefix := fmt.Sprintf("backups/%s/", username)
+			listFromStorj(prefix)
 		default:
 			fmt.Printf("❌ Unknown provider: %s\n", providerKey)
 		}
@@ -636,6 +639,78 @@ func listFromS3Compatible(prefix string) {
 		// For S3-compatible, we'll need to get metadata differently since it's S3-compatible
 		// For now, we'll assume all files are not direct backups
 		// TODO: Implement proper metadata retrieval for S3-compatible
+		metadata[file] = false
+	}
+
+	printBackups(files, metadata)
+}
+
+func listFromStorj(prefix string) {
+	ctx := context.Background()
+	storjClient, err := strg.NewStorjClient(ctx, "storj")
+	if err != nil {
+		// Check if it's a configuration error and provide helpful guidance
+		if strings.Contains(err.Error(), "configuration incomplete") {
+			fmt.Println("❌ Storj provider is not properly configured.")
+			fmt.Println("   Missing required configuration fields.")
+			fmt.Println("   Run: ./obscure provider add storj")
+			fmt.Println("   Or check configuration with: ./obscure provider list")
+			return
+		}
+		if strings.Contains(err.Error(), "not configured") {
+			fmt.Println("❌ Storj provider is not configured.")
+			fmt.Println("   Run: ./obscure provider add storj")
+			return
+		}
+		if strings.Contains(err.Error(), "disabled") {
+			fmt.Println("❌ Storj provider is disabled.")
+			fmt.Println("   Complete the configuration to enable it.")
+			fmt.Println("   Run: ./obscure provider add storj")
+			return
+		}
+		fmt.Println("❌ Failed to load Storj config:", err)
+		return
+	}
+
+	// List files using Storj client
+	files, err := storjClient.ListFiles(ctx, prefix)
+	if err != nil {
+		// Comprehensive error handling for Storj-specific issues
+		errMsg := err.Error()
+
+		if strings.Contains(errMsg, "NoSuchBucket") {
+			fmt.Println("❌ Storj bucket not found.")
+			fmt.Println("   Check your bucket name.")
+			fmt.Println("   Run: ./obscure provider add storj to update bucket name")
+			return
+		}
+
+		if strings.Contains(errMsg, "AccessDenied") {
+			fmt.Println("❌ Access denied to Storj bucket.")
+			fmt.Println("   Possible issues:")
+			fmt.Println("   - Incorrect credentials")
+			fmt.Println("   - Bucket doesn't exist")
+			fmt.Println("   - Credentials don't have access to this bucket")
+			fmt.Println("   Check your Storj credentials.")
+			return
+		}
+
+		// Generic error with suggestion to check configuration
+		fmt.Println("❌ Failed to list Storj backups:", err)
+		fmt.Println("   This might be due to:")
+		fmt.Println("   - Incorrect endpoint URL")
+		fmt.Println("   - Invalid credentials")
+		fmt.Println("   - Network connectivity issues")
+		fmt.Println("   Run: ./obscure provider add storj to reconfigure")
+		return
+	}
+
+	// Get metadata for each file
+	metadata := make(map[string]bool)
+	for _, file := range files {
+		// For Storj, we'll need to get metadata differently since it's S3-compatible
+		// For now, we'll assume all files are not direct backups
+		// TODO: Implement proper metadata retrieval for Storj
 		metadata[file] = false
 	}
 

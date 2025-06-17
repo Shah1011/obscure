@@ -48,6 +48,8 @@ var rmdirCmd = &cobra.Command{
 			prefix = fmt.Sprintf("backups/%s/%s/", username, tag)
 		case "s3-compatible":
 			prefix = fmt.Sprintf("backups/%s/%s/", username, tag)
+		case "storj":
+			prefix = fmt.Sprintf("backups/%s/%s/", username, tag)
 		default:
 			fmt.Println("❌ Unknown provider:", providerKey)
 			return
@@ -86,6 +88,8 @@ var rmdirCmd = &cobra.Command{
 			deleteAllFromIDrive(prefix)
 		case "s3-compatible":
 			deleteAllFromS3Compatible(prefix)
+		case "storj":
+			deleteAllFromStorj(prefix)
 		}
 	},
 }
@@ -169,6 +173,19 @@ func tagExists(providerKey, prefix string) (bool, error) {
 		}
 
 		files, err := s3CompatibleClient.ListFiles(ctx, prefix)
+		if err != nil {
+			return false, fmt.Errorf("error during listing: %w", err)
+		}
+		return len(files) > 0, nil
+
+	case "storj":
+		ctx := context.Background()
+		storjClient, err := strg.NewStorjClient(ctx, "storj")
+		if err != nil {
+			return false, fmt.Errorf("Storj config error: %w", err)
+		}
+
+		files, err := storjClient.ListFiles(ctx, prefix)
 		if err != nil {
 			return false, fmt.Errorf("error during listing: %w", err)
 		}
@@ -330,4 +347,37 @@ func deleteAllFromS3Compatible(prefix string) {
 	}
 
 	fmt.Printf("🗑️  Deleted %d files from S3-compatible\n", deletedCount)
+}
+
+func deleteAllFromStorj(prefix string) {
+	ctx := context.Background()
+	storjClient, err := strg.NewStorjClient(ctx, "storj")
+	if err != nil {
+		fmt.Printf("❌ Failed to initialize Storj client: %v\n", err)
+		return
+	}
+
+	files, err := storjClient.ListFiles(ctx, prefix)
+	if err != nil {
+		fmt.Printf("❌ Failed to list files from Storj: %v\n", err)
+		return
+	}
+
+	if len(files) == 0 {
+		fmt.Println("📦 No files found to delete.")
+		return
+	}
+
+	// Delete each file
+	deletedCount := 0
+	for _, file := range files {
+		err := storjClient.DeleteFile(ctx, file)
+		if err != nil {
+			fmt.Printf("⚠️  Failed to delete %s: %v\n", file, err)
+		} else {
+			deletedCount++
+		}
+	}
+
+	fmt.Printf("🗑️  Deleted %d files from Storj\n", deletedCount)
 }
