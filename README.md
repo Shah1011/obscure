@@ -7,7 +7,7 @@ A secure, encrypted backup tool that supports multiple cloud storage providers. 
 ## Features
 
 - 🔐 **End-to-End Encryption**: All backups are encrypted using AES-GCM before being uploaded
-- ☁️ **Multiple Cloud Providers**: Support for Amazon S3, Google Cloud Storage, Backblaze B2, IDrive E2, and S3-compatible services
+- ☁️ **Multiple Cloud Providers**: Support for Amazon S3, Google Cloud Storage, Backblaze B2, IDrive E2, and S3-compatible services, and Filebase + IPFS (decentralized storage)
 - 🔄 **Version Control**: Tag and version your backups for easy organization
 - 🔍 **Easy Management**: List, restore, and delete backups with simple commands
 - 🔒 **Secure**: No cloud provider credentials stored in the cloud - you control your data
@@ -83,8 +83,8 @@ A secure, encrypted backup tool that supports multiple cloud storage providers. 
 - `obscure rmdir <tag>` - Delete all backups under a tag
 
 ### Cloud Provider Management
-- `obscure provider add [s3|gcs|b2|idrive|s3-compatible]` - Add a new cloud provider
-- `obscure provider remove [s3|gcs|b2|idrive|s3-compatible]` - Remove a cloud provider
+- `obscure provider add [s3|gcs|b2|idrive|s3-compatible|filebase-ipfs]` - Add a new cloud provider
+- `obscure provider remove [s3|gcs|b2|idrive|s3-compatible|filebase-ipfs]` - Remove a cloud provider
 - `obscure provider list` - List configured providers
 - `obscure list-providers` - Show configured providers with details
 - `obscure switch-provider [provider]` - Switch active provider
@@ -100,6 +100,25 @@ A secure, encrypted backup tool that supports multiple cloud storage providers. 
 - **Backblaze B2**: B2 storage with application keys
 - **IDrive E2**: S3-compatible storage with custom endpoint
 - **S3-compatible**: Generic support for any S3-compatible service (Wasabi, MinIO, etc.)
+- **Filebase + IPFS**: Decentralized storage via Filebase's S3-compatible API (requires AWS CLI for fallback uploads)
+
+### Filebase + IPFS Provider
+Filebase+IPFS allows you to store your backups on the IPFS decentralized network using Filebase's S3-compatible API.
+
+To add Filebase+IPFS as a provider:
+```bash
+obscure provider add filebase-ipfs
+# You'll be prompted for:
+# - Custom name (e.g., "Filebase IPFS")
+# - Bucket name
+# - Access Key ID
+# - Secret Access Key
+# - Filebase endpoint URL (default: https://s3.filebase.com)
+```
+
+**Note:**
+- Filebase+IPFS uses the S3-compatible API, but some uploads may require the AWS CLI as a fallback for compatibility. Make sure the AWS CLI is installed and available in your PATH.
+- If the Go SDK upload fails with "access denied", the app will automatically use the AWS CLI to upload your backup.
 
 ### S3-compatible Provider
 For S3-compatible services, you can specify a custom name that will be displayed in the provider list:
