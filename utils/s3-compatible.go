@@ -15,11 +15,11 @@ import (
 )
 
 // GetS3CompatibleClient creates an S3 client configured for any S3-compatible service
-func GetS3CompatibleClient() (*s3.Client, error) {
+func GetS3CompatibleClient(providerKey string) (*s3.Client, error) {
 	// Get S3-compatible provider configuration
-	providerConfig, err := cfg.GetProviderConfig("s3-compatible")
+	providerConfig, err := cfg.GetProviderConfig(providerKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get S3-compatible provider config: %w", err)
+		return nil, fmt.Errorf("failed to get %s provider config: %w", providerKey, err)
 	}
 
 	// Create custom credentials
@@ -31,8 +31,14 @@ func GetS3CompatibleClient() (*s3.Client, error) {
 
 	// Create custom endpoint resolver
 	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+		var endpoint string
+		if providerKey == "filebase-ipfs" {
+			endpoint = providerConfig.FilebaseEndpoint
+		} else {
+			endpoint = providerConfig.S3CompatibleEndpoint
+		}
 		return aws.Endpoint{
-			URL:               providerConfig.S3CompatibleEndpoint,
+			URL:               endpoint,
 			SigningRegion:     providerConfig.Region,
 			HostnameImmutable: true,
 		}, nil
@@ -45,17 +51,17 @@ func GetS3CompatibleClient() (*s3.Client, error) {
 		config.WithEndpointResolverWithOptions(customResolver),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config for S3-compatible: %w", err)
+		return nil, fmt.Errorf("failed to load AWS config for %s: %w", providerKey, err)
 	}
 
 	return s3.NewFromConfig(awsCfg), nil
 }
 
 // DownloadFromS3CompatibleStream downloads a file from S3-compatible storage and returns a reader
-func DownloadFromS3CompatibleStream(bucket, key string) (io.ReadCloser, error) {
-	client, err := GetS3CompatibleClient()
+func DownloadFromS3CompatibleStream(providerKey, bucket, key string) (io.ReadCloser, error) {
+	client, err := GetS3CompatibleClient(providerKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create S3-compatible client: %w", err)
+		return nil, fmt.Errorf("failed to create %s client: %w", providerKey, err)
 	}
 
 	input := &s3.GetObjectInput{
@@ -65,17 +71,17 @@ func DownloadFromS3CompatibleStream(bucket, key string) (io.ReadCloser, error) {
 
 	resp, err := client.GetObject(context.TODO(), input)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get S3-compatible object: %w", err)
+		return nil, fmt.Errorf("failed to get %s object: %w", providerKey, err)
 	}
 
 	return resp.Body, nil // stream — remember to defer Close()
 }
 
 // CheckIfS3CompatibleObjectExists checks if an object exists in S3-compatible storage
-func CheckIfS3CompatibleObjectExists(bucket, key string) (bool, error) {
-	client, err := GetS3CompatibleClient()
+func CheckIfS3CompatibleObjectExists(providerKey, bucket, key string) (bool, error) {
+	client, err := GetS3CompatibleClient(providerKey)
 	if err != nil {
-		return false, fmt.Errorf("failed to create S3-compatible client: %w", err)
+		return false, fmt.Errorf("failed to create %s client: %w", providerKey, err)
 	}
 
 	_, err = client.HeadObject(context.TODO(), &s3.HeadObjectInput{
@@ -88,17 +94,17 @@ func CheckIfS3CompatibleObjectExists(bucket, key string) (bool, error) {
 		if errors.As(err, &notFound) {
 			return false, nil // doesn't exist
 		}
-		return false, fmt.Errorf("failed to check S3-compatible object existence: %w", err)
+		return false, fmt.Errorf("failed to check %s object existence: %w", providerKey, err)
 	}
 
 	return true, nil // exists
 }
 
 // GetS3CompatibleObjectSize gets the size of an object in S3-compatible storage
-func GetS3CompatibleObjectSize(bucket, key string) (int64, error) {
-	client, err := GetS3CompatibleClient()
+func GetS3CompatibleObjectSize(providerKey, bucket, key string) (int64, error) {
+	client, err := GetS3CompatibleClient(providerKey)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create S3-compatible client: %w", err)
+		return 0, fmt.Errorf("failed to create %s client: %w", providerKey, err)
 	}
 
 	headResp, err := client.HeadObject(context.TODO(), &s3.HeadObjectInput{
@@ -106,17 +112,17 @@ func GetS3CompatibleObjectSize(bucket, key string) (int64, error) {
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		return 0, fmt.Errorf("failed to get S3-compatible object size: %w", err)
+		return 0, fmt.Errorf("failed to get %s object size: %w", providerKey, err)
 	}
 
 	return *headResp.ContentLength, nil
 }
 
 // UploadToS3Compatible uploads a file to S3-compatible storage
-func UploadToS3Compatible(bucket, key string, reader io.Reader, metadata map[string]string) error {
-	client, err := GetS3CompatibleClient()
+func UploadToS3Compatible(providerKey, bucket, key string, reader io.Reader, metadata map[string]string) error {
+	client, err := GetS3CompatibleClient(providerKey)
 	if err != nil {
-		return fmt.Errorf("failed to create S3-compatible client: %w", err)
+		return fmt.Errorf("failed to create %s client: %w", providerKey, err)
 	}
 
 	// Convert metadata to AWS format
@@ -132,17 +138,17 @@ func UploadToS3Compatible(bucket, key string, reader io.Reader, metadata map[str
 		Metadata: awsMetadata,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to upload to S3-compatible: %w", err)
+		return fmt.Errorf("failed to upload to %s: %w", providerKey, err)
 	}
 
 	return nil
 }
 
 // DeleteFromS3Compatible deletes an object from S3-compatible storage
-func DeleteFromS3Compatible(bucket, key string) error {
-	client, err := GetS3CompatibleClient()
+func DeleteFromS3Compatible(providerKey, bucket, key string) error {
+	client, err := GetS3CompatibleClient(providerKey)
 	if err != nil {
-		return fmt.Errorf("failed to create S3-compatible client: %w", err)
+		return fmt.Errorf("failed to create %s client: %w", providerKey, err)
 	}
 
 	_, err = client.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
@@ -150,17 +156,17 @@ func DeleteFromS3Compatible(bucket, key string) error {
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to delete from S3-compatible: %w", err)
+		return fmt.Errorf("failed to delete from %s: %w", providerKey, err)
 	}
 
 	return nil
 }
 
 // ListS3CompatibleObjects lists objects in S3-compatible storage with a prefix
-func ListS3CompatibleObjects(bucket, prefix string) ([]string, error) {
-	client, err := GetS3CompatibleClient()
+func ListS3CompatibleObjects(providerKey, bucket, prefix string) ([]string, error) {
+	client, err := GetS3CompatibleClient(providerKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create S3-compatible client: %w", err)
+		return nil, fmt.Errorf("failed to create %s client: %w", providerKey, err)
 	}
 
 	var objects []string
@@ -172,7 +178,7 @@ func ListS3CompatibleObjects(bucket, prefix string) ([]string, error) {
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(context.TODO())
 		if err != nil {
-			return nil, fmt.Errorf("failed to list S3-compatible objects: %w", err)
+			return nil, fmt.Errorf("failed to list %s objects: %w", providerKey, err)
 		}
 
 		for _, obj := range page.Contents {

@@ -237,7 +237,7 @@ You can also combine both formats, but the flags will take precedence.`,
 
 		case "s3-compatible":
 			fmt.Println("🔽 Downloading backup from S3-compatible storage...")
-			size, err = utils.GetS3CompatibleObjectSize(bucket, key)
+			size, err = utils.GetS3CompatibleObjectSize("s3-compatible", bucket, key)
 			if err != nil {
 				if strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "not found") {
 					fmt.Printf("❌ No backup found for tag '%s' and version '%s' in S3-compatible storage.\n", restoreTag, restoreVersion)
@@ -247,7 +247,7 @@ You can also combine both formats, but the flags will take precedence.`,
 				return
 			}
 
-			rawReader, err = utils.DownloadFromS3CompatibleStream(bucket, key)
+			rawReader, err = utils.DownloadFromS3CompatibleStream("s3-compatible", bucket, key)
 			if err != nil {
 				fmt.Println("❌ Failed to download backup:", err)
 				return
@@ -273,7 +273,7 @@ You can also combine both formats, but the flags will take precedence.`,
 
 		case "filebase-ipfs":
 			fmt.Println("🔽 Downloading backup from Filebase+IPFS...")
-			size, err = utils.GetS3CompatibleObjectSize(bucket, key)
+			size, err = utils.GetS3CompatibleObjectSize("filebase-ipfs", bucket, key)
 			if err != nil {
 				if strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "not found") {
 					fmt.Printf("❌ No backup found for tag '%s' and version '%s' in Filebase+IPFS.\n", restoreTag, restoreVersion)
@@ -283,7 +283,7 @@ You can also combine both formats, but the flags will take precedence.`,
 				return
 			}
 
-			rawReader, err = utils.DownloadFromS3CompatibleStream(bucket, key)
+			rawReader, err = utils.DownloadFromS3CompatibleStream("filebase-ipfs", bucket, key)
 			if err != nil {
 				fmt.Println("❌ Failed to download backup:", err)
 				return

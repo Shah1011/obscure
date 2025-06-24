@@ -614,14 +614,23 @@ var backupCmd = &cobra.Command{
 					fmt.Printf("❌ Failed to create temp file for AWS CLI upload: %v\n", ferr)
 					return
 				}
-				_, ferr = io.Copy(f, uploadReader)
+				// Prepare reader for AWS CLI upload
+				var readerForCLI io.Reader = uploadReader
+				if seeker, ok := uploadReader.(io.Seeker); ok {
+					seeker.Seek(0, io.SeekStart)
+				} else if buf, ok := uploadReader.(*bytes.Buffer); ok {
+					readerForCLI = bytes.NewReader(buf.Bytes())
+				}
+				_, ferr = io.Copy(f, readerForCLI)
 				f.Close()
 				if ferr != nil {
 					fmt.Printf("❌ Failed to write temp file for AWS CLI upload: %v\n", ferr)
 					os.Remove(tmpPath)
 					return
 				}
-				err = uploadWithAWSCLI(tmpPath, providerConfig.Bucket, key, providerConfig.Region, providerConfig.FilebaseEndpoint, providerConfig.AccessKeyID, providerConfig.SecretAccessKey)
+				err = uploadWithSpinner(ctx, nil, uploadSize, func(_ io.Reader) error {
+					return uploadWithAWSCLI(tmpPath, providerConfig.Bucket, key, providerConfig.Region, providerConfig.FilebaseEndpoint, providerConfig.AccessKeyID, providerConfig.SecretAccessKey)
+				})
 				os.Remove(tmpPath)
 				if err != nil {
 					fmt.Printf("❌ AWS CLI upload failed: %v\n", err)
