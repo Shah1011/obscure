@@ -58,6 +58,9 @@ var lsCmd = &cobra.Command{
 		case "storj":
 			prefix := fmt.Sprintf("backups/%s/", username)
 			listFromStorj(prefix)
+		case "filebase-ipfs":
+			prefix := fmt.Sprintf("backups/%s/", username)
+			listFromFilebaseIPFS(prefix)
 		default:
 			fmt.Printf("❌ Unknown provider: %s\n", providerKey)
 		}
@@ -711,6 +714,67 @@ func listFromStorj(prefix string) {
 		// For Storj, we'll need to get metadata differently since it's S3-compatible
 		// For now, we'll assume all files are not direct backups
 		// TODO: Implement proper metadata retrieval for Storj
+		metadata[file] = false
+	}
+
+	printBackups(files, metadata)
+}
+
+func listFromFilebaseIPFS(prefix string) {
+	ctx := context.Background()
+	s3CompatibleClient, err := strg.NewS3CompatibleClient(ctx, "filebase-ipfs")
+	if err != nil {
+		if strings.Contains(err.Error(), "configuration incomplete") {
+			fmt.Println("❌ Filebase+IPFS provider is not properly configured.")
+			fmt.Println("   Missing required configuration fields.")
+			fmt.Println("   Run: ./obscure provider add filebase-ipfs")
+			fmt.Println("   Or check configuration with: ./obscure provider list")
+			return
+		}
+		if strings.Contains(err.Error(), "not configured") {
+			fmt.Println("❌ Filebase+IPFS provider is not configured.")
+			fmt.Println("   Run: ./obscure provider add filebase-ipfs")
+			return
+		}
+		if strings.Contains(err.Error(), "disabled") {
+			fmt.Println("❌ Filebase+IPFS provider is disabled.")
+			fmt.Println("   Complete the configuration to enable it.")
+			fmt.Println("   Run: ./obscure provider add filebase-ipfs")
+			return
+		}
+		fmt.Println("❌ Failed to load Filebase+IPFS config:", err)
+		return
+	}
+
+	files, err := s3CompatibleClient.ListFiles(ctx, prefix)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "NoSuchBucket") {
+			fmt.Println("❌ Filebase+IPFS bucket not found.")
+			fmt.Println("   Check your bucket name.")
+			fmt.Println("   Run: ./obscure provider add filebase-ipfs to update bucket name")
+			return
+		}
+		if strings.Contains(errMsg, "AccessDenied") {
+			fmt.Println("❌ Access denied to Filebase+IPFS bucket.")
+			fmt.Println("   Possible issues:")
+			fmt.Println("   - Incorrect credentials")
+			fmt.Println("   - Bucket doesn't exist")
+			fmt.Println("   - Credentials don't have access to this bucket")
+			fmt.Println("   Check your Filebase+IPFS credentials.")
+			return
+		}
+		fmt.Println("❌ Failed to list Filebase+IPFS backups:", err)
+		fmt.Println("   This might be due to:")
+		fmt.Println("   - Incorrect endpoint URL")
+		fmt.Println("   - Invalid credentials")
+		fmt.Println("   - Network connectivity issues")
+		fmt.Println("   Run: ./obscure provider add filebase-ipfs to reconfigure")
+		return
+	}
+
+	metadata := make(map[string]bool)
+	for _, file := range files {
 		metadata[file] = false
 	}
 

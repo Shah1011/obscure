@@ -9,7 +9,7 @@ import (
 )
 
 type CloudProviderConfig struct {
-	Provider string `json:"provider"` // "s3", "gcs", "b2", "idrive", "s3-compatible", or "storj"
+	Provider string `json:"provider"` // "s3", "gcs", "b2", "idrive", "s3-compatible", "storj", or "filebase-ipfs"
 	Enabled  bool   `json:"enabled"`
 	// S3 specific fields
 	Bucket          string `json:"bucket,omitempty"`
@@ -30,6 +30,8 @@ type CloudProviderConfig struct {
 	CustomName           string `json:"custom_name,omitempty"`            // Custom name for S3-compatible provider
 	// Storj specific fields (S3-compatible)
 	StorjEndpoint string `json:"storj_endpoint,omitempty"` // Storj endpoint URL
+	// Filebase+IPFS specific fields (S3-compatible)
+	FilebaseEndpoint string `json:"filebase_endpoint,omitempty"` // Filebase endpoint URL
 }
 
 type UserProviders struct {
@@ -130,6 +132,25 @@ func IsProviderConfigComplete(config *CloudProviderConfig) (bool, []string) {
 		}
 		if strings.TrimSpace(config.StorjEndpoint) == "" {
 			missing = append(missing, "Storj endpoint")
+		}
+	case "filebase-ipfs":
+		if strings.TrimSpace(config.Bucket) == "" {
+			missing = append(missing, "bucket name")
+		}
+		if strings.TrimSpace(config.Region) == "" {
+			missing = append(missing, "region")
+		}
+		if strings.TrimSpace(config.AccessKeyID) == "" {
+			missing = append(missing, "access key ID")
+		}
+		if strings.TrimSpace(config.SecretAccessKey) == "" {
+			missing = append(missing, "secret access key")
+		}
+		if strings.TrimSpace(config.FilebaseEndpoint) == "" {
+			missing = append(missing, "Filebase endpoint")
+		}
+		if strings.TrimSpace(config.CustomName) == "" {
+			missing = append(missing, "custom name")
 		}
 	}
 

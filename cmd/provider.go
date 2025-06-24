@@ -218,19 +218,35 @@ func isProviderConfigComplete(config *cfg.CloudProviderConfig) (bool, []string) 
 		if config.StorjEndpoint == "" {
 			missing = append(missing, "Storj endpoint")
 		}
+	case "filebase-ipfs":
+		if config.Bucket == "" {
+			missing = append(missing, "bucket name")
+		}
+		if config.Region == "" {
+			missing = append(missing, "region")
+		}
+		if config.AccessKeyID == "" {
+			missing = append(missing, "access key ID")
+		}
+		if config.SecretAccessKey == "" {
+			missing = append(missing, "secret access key")
+		}
+		if config.FilebaseEndpoint == "" {
+			missing = append(missing, "Filebase endpoint")
+		}
 	}
 
 	return len(missing) == 0, missing
 }
 
 var addProviderCmd = &cobra.Command{
-	Use:   "add [s3|gcs|b2|idrive|s3-compatible|storj]",
+	Use:   "add [s3|gcs|b2|idrive|s3-compatible|storj|filebase-ipfs]",
 	Short: "Add a new cloud storage provider",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		provider := strings.ToLower(args[0])
-		if provider != "s3" && provider != "gcs" && provider != "b2" && provider != "idrive" && provider != "s3-compatible" && provider != "storj" {
-			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', 'b2', 'idrive', 's3-compatible', or 'storj'")
+		if provider != "s3" && provider != "gcs" && provider != "b2" && provider != "idrive" && provider != "s3-compatible" && provider != "storj" && provider != "filebase-ipfs" {
+			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', 'b2', 'idrive', 's3-compatible', 'storj', or 'filebase-ipfs'")
 			return
 		}
 
@@ -285,6 +301,8 @@ var addProviderCmd = &cobra.Command{
 			configErr = configureS3CompatibleProvider(config)
 		case "storj":
 			configErr = configureStorjProvider(config)
+		case "filebase-ipfs":
+			configErr = configureFilebaseIPFSProvider(config)
 		}
 
 		if configErr != nil {
@@ -538,14 +556,58 @@ func configureStorjProvider(config *cfg.CloudProviderConfig) error {
 	return nil
 }
 
+func configureFilebaseIPFSProvider(config *cfg.CloudProviderConfig) error {
+	fmt.Println("\n🔧 Configure Filebase + IPFS storage: ⚠️Need AWS CLI installed in your machine to make this work")
+
+	customName := readInput("Enter a name for this provider (e.g., Filebase IPFS): ")
+	if strings.TrimSpace(customName) == "" {
+		return fmt.Errorf("custom name cannot be empty")
+	}
+
+	bucket := readInput("Enter Filebase bucket name: ")
+	if err := validateBucketName(bucket); err != nil {
+		return fmt.Errorf("invalid bucket name: %v", err)
+	}
+
+	// Hard-code region for Filebase+IPFS
+	region := "us-east-1"
+
+	accessKey := readInput("Enter Filebase access key ID: ")
+	if err := validateAccessKey(accessKey); err != nil {
+		return fmt.Errorf("invalid access key: %v", err)
+	}
+
+	secretKey := readInput("Enter Filebase secret access key: ")
+	if err := validateSecretKey(secretKey); err != nil {
+		return fmt.Errorf("invalid secret key: %v", err)
+	}
+
+	endpoint := readInput("Enter Filebase endpoint URL (default: https://s3.filebase.com): ")
+	if strings.TrimSpace(endpoint) == "" {
+		endpoint = "https://s3.filebase.com"
+	}
+	if err := validateEndpoint(endpoint); err != nil {
+		return fmt.Errorf("invalid endpoint: %v", err)
+	}
+
+	config.CustomName = customName
+	config.Bucket = bucket
+	config.Region = region
+	config.AccessKeyID = accessKey
+	config.SecretAccessKey = secretKey
+	config.FilebaseEndpoint = endpoint
+
+	return nil
+}
+
 var removeProviderCmd = &cobra.Command{
-	Use:   "remove [s3|gcs|b2|idrive|s3-compatible|storj]",
+	Use:   "remove [s3|gcs|b2|idrive|s3-compatible|storj|filebase-ipfs]",
 	Short: "Remove a cloud storage provider",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		provider := strings.ToLower(args[0])
-		if provider != "s3" && provider != "gcs" && provider != "b2" && provider != "idrive" && provider != "s3-compatible" && provider != "storj" {
-			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', 'b2', 'idrive', 's3-compatible', or 'storj'")
+		if provider != "s3" && provider != "gcs" && provider != "b2" && provider != "idrive" && provider != "s3-compatible" && provider != "storj" && provider != "filebase-ipfs" {
+			fmt.Println("❌ Invalid provider. Use 's3', 'gcs', 'b2', 'idrive', 's3-compatible', 'storj', or 'filebase-ipfs'")
 			return
 		}
 
@@ -637,6 +699,11 @@ var listCmd = &cobra.Command{
 				fmt.Printf("    Bucket: %s\n", config.Bucket)
 				fmt.Printf("    Region: %s\n", config.Region)
 				fmt.Printf("    Endpoint: %s\n", config.StorjEndpoint)
+			} else if config.Provider == "filebase-ipfs" {
+				fmt.Printf("    Name: %s\n", config.CustomName)
+				fmt.Printf("    Bucket: %s\n", config.Bucket)
+				fmt.Printf("    Region: %s\n", config.Region)
+				fmt.Printf("    Endpoint: %s\n", config.FilebaseEndpoint)
 			}
 		}
 	},

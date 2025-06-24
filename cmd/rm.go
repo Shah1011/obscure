@@ -65,6 +65,8 @@ var rmCmd = &cobra.Command{
 			deleteFromS3Compatible(bucket, key)
 		case "storj":
 			deleteFromStorj(bucket, key)
+		case "filebase-ipfs":
+			deleteFromFilebaseIPFS(bucket, key)
 		default:
 			fmt.Println("❌ Unknown provider:", providerKey)
 		}
@@ -210,6 +212,23 @@ func deleteFromStorj(bucket, key string) {
 	err = storjClient.DeleteFile(ctx, key)
 	if err != nil {
 		fmt.Printf("❌ Failed to delete from Storj: %v\n", err)
+		return
+	}
+
+	fmt.Println("🗑️  Deleted:", key)
+}
+
+func deleteFromFilebaseIPFS(bucket, key string) {
+	ctx := context.Background()
+	s3CompatibleClient, err := strg.NewS3CompatibleClient(ctx, "filebase-ipfs")
+	if err != nil {
+		fmt.Printf("❌ Failed to initialize Filebase+IPFS client: %v\n", err)
+		return
+	}
+
+	err = s3CompatibleClient.DeleteFile(ctx, key)
+	if err != nil {
+		fmt.Printf("❌ Failed to delete from Filebase+IPFS: %v\n", err)
 		return
 	}
 

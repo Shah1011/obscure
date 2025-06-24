@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 
@@ -26,6 +27,12 @@ func NewS3CompatibleClient(ctx context.Context, provider string) (*S3CompatibleC
 		return nil, err
 	}
 
+	// Determine endpoint
+	endpoint := providerConfig.S3CompatibleEndpoint
+	if provider == "filebase-ipfs" {
+		endpoint = providerConfig.FilebaseEndpoint
+	}
+
 	// Create custom credentials
 	customCredentials := credentials.NewStaticCredentialsProvider(
 		providerConfig.AccessKeyID,
@@ -36,7 +43,7 @@ func NewS3CompatibleClient(ctx context.Context, provider string) (*S3CompatibleC
 	// Create custom endpoint resolver
 	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 		return aws.Endpoint{
-			URL:               providerConfig.S3CompatibleEndpoint,
+			URL:               endpoint,
 			SigningRegion:     providerConfig.Region,
 			HostnameImmutable: true,
 		}, nil
@@ -74,7 +81,20 @@ func (s *S3CompatibleClient) UploadFile(ctx context.Context, key string, reader 
 		Body:     reader,
 		Metadata: awsMetadata,
 	})
-	return err
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "AccessDenied") {
+			return fmt.Errorf("access denied: please check your Filebase credentials, bucket name, and permissions. The bucket must exist and your access key must have write permissions")
+		}
+		if strings.Contains(errMsg, "NoSuchBucket") {
+			return fmt.Errorf("bucket not found: the specified Filebase bucket does not exist. Please create it in the Filebase dashboard and check the name")
+		}
+		if strings.Contains(errMsg, "InvalidAccessKeyId") || strings.Contains(errMsg, "SignatureDoesNotMatch") {
+			return fmt.Errorf("invalid credentials: the provided Filebase access key or secret key is incorrect. Please verify your credentials")
+		}
+		return fmt.Errorf("filebase upload error: %v", err)
+	}
+	return nil
 }
 
 // FileExists checks if a file exists in S3-compatible storage

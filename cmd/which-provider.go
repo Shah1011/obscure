@@ -19,6 +19,7 @@ var whichProviderCmd = &cobra.Command{
 			"idrive":        "IDrive E2",
 			"s3-compatible": "S3-compatible",
 			"storj":         "Storj",
+			"filebase-ipfs": "Filebase + IPFS",
 		}
 
 		// Get current session provider
@@ -39,6 +40,14 @@ var whichProviderCmd = &cobra.Command{
 				providerConfig, err := config.GetProviderConfig("s3-compatible")
 				if err == nil && providerConfig.CustomName != "" {
 					fmt.Printf("☁️  %s (S3-compatible)\n", providerConfig.CustomName)
+					return
+				}
+			}
+			// For filebase-ipfs, show custom name if set
+			if currentProviderKey == "filebase-ipfs" {
+				providerConfig, err := config.GetProviderConfig("filebase-ipfs")
+				if err == nil && providerConfig.CustomName != "" {
+					fmt.Printf("☁️  %s (Filebase + IPFS)\n", providerConfig.CustomName)
 					return
 				}
 			}

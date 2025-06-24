@@ -50,6 +50,8 @@ var rmdirCmd = &cobra.Command{
 			prefix = fmt.Sprintf("backups/%s/%s/", username, tag)
 		case "storj":
 			prefix = fmt.Sprintf("backups/%s/%s/", username, tag)
+		case "filebase-ipfs":
+			prefix = fmt.Sprintf("backups/%s/%s/", username, tag)
 		default:
 			fmt.Println("❌ Unknown provider:", providerKey)
 			return
@@ -90,6 +92,8 @@ var rmdirCmd = &cobra.Command{
 			deleteAllFromS3Compatible(prefix)
 		case "storj":
 			deleteAllFromStorj(prefix)
+		case "filebase-ipfs":
+			deleteAllFromFilebaseIPFS(prefix)
 		}
 	},
 }
@@ -186,6 +190,19 @@ func tagExists(providerKey, prefix string) (bool, error) {
 		}
 
 		files, err := storjClient.ListFiles(ctx, prefix)
+		if err != nil {
+			return false, fmt.Errorf("error during listing: %w", err)
+		}
+		return len(files) > 0, nil
+
+	case "filebase-ipfs":
+		ctx := context.Background()
+		s3CompatibleClient, err := strg.NewS3CompatibleClient(ctx, "filebase-ipfs")
+		if err != nil {
+			return false, fmt.Errorf("Filebase+IPFS config error: %w", err)
+		}
+
+		files, err := s3CompatibleClient.ListFiles(ctx, prefix)
 		if err != nil {
 			return false, fmt.Errorf("error during listing: %w", err)
 		}
@@ -380,4 +397,36 @@ func deleteAllFromStorj(prefix string) {
 	}
 
 	fmt.Printf("🗑️  Deleted %d files from Storj\n", deletedCount)
+}
+
+func deleteAllFromFilebaseIPFS(prefix string) {
+	ctx := context.Background()
+	s3CompatibleClient, err := strg.NewS3CompatibleClient(ctx, "filebase-ipfs")
+	if err != nil {
+		fmt.Printf("❌ Failed to initialize Filebase+IPFS client: %v\n", err)
+		return
+	}
+
+	files, err := s3CompatibleClient.ListFiles(ctx, prefix)
+	if err != nil {
+		fmt.Printf("❌ Failed to list files from Filebase+IPFS: %v\n", err)
+		return
+	}
+
+	if len(files) == 0 {
+		fmt.Println("📦 No files found to delete.")
+		return
+	}
+
+	deletedCount := 0
+	for _, file := range files {
+		err := s3CompatibleClient.DeleteFile(ctx, file)
+		if err != nil {
+			fmt.Printf("⚠️  Failed to delete %s: %v\n", file, err)
+		} else {
+			deletedCount++
+		}
+	}
+
+	fmt.Printf("🗑️  Deleted %d files from Filebase+IPFS\n", deletedCount)
 }

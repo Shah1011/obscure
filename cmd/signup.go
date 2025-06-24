@@ -60,8 +60,8 @@ var signupCmd = &cobra.Command{
 		}
 
 		// Step 4: Prompt for default cloud provider
-		providers := []string{"Amazon S3", "Google Cloud Storage", "Backblaze B2", "IDrive E2", "S3-compatible", "Storj"}
-		providerKeys := []string{"s3", "gcs", "b2", "idrive", "s3-compatible", "storj"}
+		providers := []string{"Amazon S3", "Google Cloud Storage", "Backblaze B2", "IDrive E2", "S3-compatible", "Storj", "Filebase + IPFS"}
+		providerKeys := []string{"s3", "gcs", "b2", "idrive", "s3-compatible", "storj", "filebase-ipfs"}
 
 		underline := "\033[4m"
 		reset := "\033[0m"
@@ -273,6 +273,45 @@ var signupCmd = &cobra.Command{
 			config.AccessKeyID = accessKey
 			config.SecretAccessKey = secretKey
 			config.StorjEndpoint = endpoint
+		case "filebase-ipfs":
+			fmt.Println("\n🔧 Configure your Filebase + IPFS storage:")
+			customName, err := utils.PromptLine("Enter a name for this provider (e.g., Filebase IPFS): ")
+			if err != nil {
+				fmt.Println("❌ Invalid custom name")
+				return
+			}
+			bucket, err := utils.PromptLine("Enter Filebase bucket name: ")
+			if err != nil {
+				fmt.Println("❌ Invalid bucket name")
+				return
+			}
+			// Hard-code region for Filebase+IPFS
+			region := "us-east-1"
+			accessKey, err := utils.PromptLine("Enter Filebase access key ID: ")
+			if err != nil {
+				fmt.Println("❌ Invalid access key")
+				return
+			}
+			secretKey, err := utils.PromptPassword("Enter Filebase secret access key: ")
+			if err != nil {
+				fmt.Println("❌ Invalid secret key")
+				return
+			}
+			endpoint, err := utils.PromptLine("Enter Filebase endpoint URL (default: https://s3.filebase.com): ")
+			if err != nil {
+				fmt.Println("❌ Invalid endpoint")
+				return
+			}
+			if strings.TrimSpace(endpoint) == "" {
+				endpoint = "https://s3.filebase.com"
+			}
+
+			config.CustomName = customName
+			config.Bucket = bucket
+			config.Region = region
+			config.AccessKeyID = accessKey
+			config.SecretAccessKey = secretKey
+			config.FilebaseEndpoint = endpoint
 		}
 
 		// Save provider configuration locally

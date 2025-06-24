@@ -17,8 +17,8 @@ var switchProviderCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		centralizedProviders := []string{"Amazon S3", "Google Cloud Storage", "Backblaze B2", "IDrive E2", "S3-compatible"}
 		centralizedKeys := []string{"s3", "gcs", "b2", "idrive", "s3-compatible"}
-		decentralizedProviders := []string{"Storj"}
-		decentralizedKeys := []string{"storj"}
+		decentralizedProviders := []string{"Storj", "Filebase + IPFS"}
+		decentralizedKeys := []string{"storj", "filebase-ipfs"}
 
 		// For flag mode, keep old logic
 		providerKeys := append(centralizedKeys, decentralizedKeys...)
@@ -63,7 +63,7 @@ var switchProviderCmd = &cobra.Command{
 						Label:    "{{ . }}",
 						Active:   underline + "{{ . | green }}" + reset,
 						Inactive: "{{ . }}",
-						Selected: "📂 Selected: {{ . | green }}",
+						Selected: "",
 					},
 					Stdout: os.Stderr,
 				}
@@ -98,7 +98,7 @@ var switchProviderCmd = &cobra.Command{
 						Label:    "{{ . }}",
 						Active:   underline + "{{ . | green }}" + reset,
 						Inactive: "{{ . }}",
-						Selected: "☁️  Selected: {{ . | green }}",
+						Selected: "",
 					},
 					Stdout: os.Stderr,
 				}

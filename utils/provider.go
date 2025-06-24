@@ -53,7 +53,7 @@ func FetchUserDefaultProvider(email string) (string, error) {
 }
 
 func PromptForCloudProvider() (string, error) {
-	providers := []string{"Amazon S3", "Google Cloud Storage", "Backblaze B2", "IDrive E2", "S3-compatible (Wasabi, DigitalOcean, etc.)", "Storj"}
+	providers := []string{"Amazon S3", "Google Cloud Storage", "Backblaze B2", "IDrive E2", "S3-compatible (Wasabi, DigitalOcean, etc.)", "Storj", "Filebase + IPFS"}
 
 	prompt := promptui.Select{
 		Label:  "Select Cloud Provider",
@@ -79,6 +79,8 @@ func PromptForCloudProvider() (string, error) {
 		return "S3-compatible", nil
 	case 5:
 		return "Storj", nil
+	case 6:
+		return "Filebase + IPFS", nil
 	default:
 		return "", errors.New("invalid provider selected")
 	}

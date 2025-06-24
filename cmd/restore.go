@@ -271,6 +271,24 @@ You can also combine both formats, but the flags will take precedence.`,
 				return
 			}
 
+		case "filebase-ipfs":
+			fmt.Println("🔽 Downloading backup from Filebase+IPFS...")
+			size, err = utils.GetS3CompatibleObjectSize(bucket, key)
+			if err != nil {
+				if strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "not found") {
+					fmt.Printf("❌ No backup found for tag '%s' and version '%s' in Filebase+IPFS.\n", restoreTag, restoreVersion)
+				} else {
+					fmt.Println("❌ Could not get backup size:", err)
+				}
+				return
+			}
+
+			rawReader, err = utils.DownloadFromS3CompatibleStream(bucket, key)
+			if err != nil {
+				fmt.Println("❌ Failed to download backup:", err)
+				return
+			}
+
 		default:
 			fmt.Println("❌ Unknown provider.")
 			return

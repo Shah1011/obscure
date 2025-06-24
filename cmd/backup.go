@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -171,6 +172,23 @@ func uploadWithSpinner(ctx context.Context, reader io.Reader, size int64, upload
 	fmt.Print("\r") // Clear spinner line
 
 	return err
+}
+
+func uploadWithAWSCLI(localPath, bucket, key, region, endpoint, accessKey, secretKey string) error {
+	env := os.Environ()
+	env = append(env, "AWS_ACCESS_KEY_ID="+accessKey)
+	env = append(env, "AWS_SECRET_ACCESS_KEY="+secretKey)
+
+	dest := "s3://" + bucket + "/" + key
+	cmd := exec.Command("aws", "--endpoint", endpoint, "s3", "cp", localPath, dest, "--region", region)
+	cmd.Env = env
+
+	output, err := cmd.CombinedOutput()
+	fmt.Print(string(output))
+	if err != nil {
+		return fmt.Errorf("AWS CLI upload failed: %v", err)
+	}
+	return nil
 }
 
 var backupCmd = &cobra.Command{
@@ -553,6 +571,67 @@ var backupCmd = &cobra.Command{
 			})
 			if err != nil {
 				fmt.Printf("\n❌ Failed to upload to Storj: %v\n", err)
+				return
+			}
+
+		case "filebase-ipfs":
+			ctx := context.Background()
+			s3CompatibleClient, err := strg.NewS3CompatibleClient(ctx, "filebase-ipfs")
+			if err != nil {
+				fmt.Printf("❌ Failed to initialize Filebase+IPFS client: %v\n", err)
+				return
+			}
+
+			providerConfig, _ := cfg.GetProviderConfig("filebase-ipfs")
+
+			// Check if object exists
+			exists, err := s3CompatibleClient.FileExists(ctx, key)
+			if err != nil {
+				fmt.Printf("❌ Failed to check if backup exists: %v\n", err)
+				return
+			}
+			if exists {
+				fmt.Println("❌ A backup with this name already exists")
+				return
+			}
+
+			// Try Go SDK upload first
+			err = uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+				metadata := map[string]string{
+					"username":  username,
+					"tag":       tag,
+					"version":   version,
+					"is_direct": fmt.Sprintf("%v", isDirect),
+				}
+				return s3CompatibleClient.UploadFile(ctx, key, reader, metadata)
+			})
+			if err != nil && strings.Contains(err.Error(), "access denied") {
+				fmt.Println("⚠️  Go SDK upload failed with access denied. Trying AWS CLI fallback...")
+				// Save the file to a temp location for CLI upload
+				tmpPath := "obscure_tmp_upload_file"
+				f, ferr := os.Create(tmpPath)
+				if ferr != nil {
+					fmt.Printf("❌ Failed to create temp file for AWS CLI upload: %v\n", ferr)
+					return
+				}
+				_, ferr = io.Copy(f, uploadReader)
+				f.Close()
+				if ferr != nil {
+					fmt.Printf("❌ Failed to write temp file for AWS CLI upload: %v\n", ferr)
+					os.Remove(tmpPath)
+					return
+				}
+				err = uploadWithAWSCLI(tmpPath, providerConfig.Bucket, key, providerConfig.Region, providerConfig.FilebaseEndpoint, providerConfig.AccessKeyID, providerConfig.SecretAccessKey)
+				os.Remove(tmpPath)
+				if err != nil {
+					fmt.Printf("❌ AWS CLI upload failed: %v\n", err)
+					return
+				}
+				fmt.Println("✅ Backup uploaded using AWS CLI fallback.")
+				return
+			}
+			if err != nil {
+				fmt.Printf("\n❌ Failed to upload to Filebase+IPFS: %v\n", err)
 				return
 			}
 
