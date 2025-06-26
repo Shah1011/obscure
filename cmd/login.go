@@ -29,16 +29,39 @@ var loginCmd = &cobra.Command{
 		}
 
 		// Step 3: Firebase authentication
-		idToken, err := firebase.FirebaseLogin(email, password, os.Getenv("FIREBASE_API_KEY"))
+		apiKey := os.Getenv("FIREBASE_API_KEY")
+		if apiKey == "" {
+			fmt.Println("❌ FIREBASE_API_KEY environment variable is not set.")
+			return
+		}
+		idToken, err := firebase.FirebaseLogin(email, password, apiKey)
 		if err != nil {
 			fmt.Println("❌ Login failed:", err)
 			return
 		}
 
-		// Step 4: Get user data from config
-		userData, err := cfg.GetUserDataByEmail(email)
+		// Step 4: Get user data from Firestore
+		client, err := firebase.GetFirestoreClient()
 		if err != nil {
-			fmt.Println("❌ Failed to get user data:", err)
+			fmt.Println("❌ Failed to connect to Firestore:", err)
+			return
+		}
+		defer client.Close()
+
+		iter := client.Collection("users").Where("email", "==", email).Documents(cmd.Context())
+		doc, err := iter.Next()
+		if err != nil {
+			fmt.Println("❌ Failed to fetch user data from Firestore:", err)
+			return
+		}
+		var userData struct {
+			Username string `firestore:"username"`
+			Email    string `firestore:"email"`
+			Provider string `firestore:"defaultProvider"`
+		}
+		err = doc.DataTo(&userData)
+		if err != nil {
+			fmt.Println("❌ Failed to parse user data:", err)
 			return
 		}
 
