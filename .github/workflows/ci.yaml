@@ -36,6 +36,9 @@ jobs:
     - name: Build CLI
       run: go build -o obscure .
 
+    - name: Add current directory to PATH
+      run: echo "$PWD" >> $GITHUB_PATH
+
     - name: Decode Firebase service account key
       run: |
         echo "${{ secrets.FIREBASE_SERVICE_ACCOUNT_B64 }}" | base64 -d > firebase-key.json
