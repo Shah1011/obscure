@@ -61,6 +61,10 @@ jobs:
         pip install gsutil
 
     - name: Wait for LocalStack
+      env:
+        AWS_ACCESS_KEY_ID: test
+        AWS_SECRET_ACCESS_KEY: test
+        AWS_REGION: us-east-1
       run: |
         until aws --endpoint-url=http://localhost:4566 s3 ls; do sleep 2; done
 
@@ -73,13 +77,29 @@ jobs:
         until curl -s http://localhost:4443/storage/v1/b; do sleep 2; done
 
     - name: Make integration test scripts executable
-      run: chmod +x integration/integration_test.sh integration_test_gcs.sh integration_test_filebase.sh
+      env:
+        AWS_ACCESS_KEY_ID: test
+        AWS_SECRET_ACCESS_KEY: test
+        AWS_REGION: us-east-1
+      run: chmod +x integration/integration_test.sh integration/integration_test_gcs.sh integration/integration_test_filebase.sh
 
     - name: Run AWS S3 integration test
+      env:
+        AWS_ACCESS_KEY_ID: test
+        AWS_SECRET_ACCESS_KEY: test
+        AWS_REGION: us-east-1
       run: ./integration/integration_test.sh
 
     - name: Run GCS integration test
+      env:
+        AWS_ACCESS_KEY_ID: test
+        AWS_SECRET_ACCESS_KEY: test
+        AWS_REGION: us-east-1
       run: ./integration/integration_test_gcs.sh
 
     - name: Run S3-compatible (Filebase) integration test
+      env:
+        AWS_ACCESS_KEY_ID: test
+        AWS_SECRET_ACCESS_KEY: test
+        AWS_REGION: us-east-1
       run: ./integration/integration_test_filebase.sh
