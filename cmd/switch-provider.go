@@ -55,7 +55,7 @@ var switchProviderCmd = &cobra.Command{
 
 			for {
 				// First level: Choose provider type
-				providerTypes := []string{"Centralized Providers", "Decentralized Providers"}
+				providerTypes := []string{"Centralized Providers", "Decentralized Providers", "Exit"}
 				typePrompt := promptui.Select{
 					Label: "Select provider type",
 					Items: providerTypes,
@@ -71,6 +71,12 @@ var switchProviderCmd = &cobra.Command{
 				typeIdx, _, err := typePrompt.Run()
 				if err != nil {
 					return fmt.Errorf("provider type selection cancelled or failed: %w", err)
+				}
+
+				// Handle Exit option
+				if typeIdx == 2 {
+					fmt.Println("Exited provider switch menu.")
+					return nil
 				}
 
 				// Second level: Choose specific provider

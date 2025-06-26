@@ -186,7 +186,7 @@ func tagExists(providerKey, prefix string) (bool, error) {
 		ctx := context.Background()
 		storjClient, err := strg.NewStorjClient(ctx, "storj")
 		if err != nil {
-			return false, fmt.Errorf("Storj config error: %w", err)
+			return false, fmt.Errorf("storj config error: %w", err)
 		}
 
 		files, err := storjClient.ListFiles(ctx, prefix)

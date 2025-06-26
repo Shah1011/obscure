@@ -197,7 +197,8 @@ var backupCmd = &cobra.Command{
 	Long: `Back up a file or directory to your cloud storage. You can specify the backup tag and version using flags:
   --tag: Tag for the backup (e.g., 'unit' or 'prod')
   --version: Version for the backup (e.g., '2.1' or '1.0')
-  --direct: Create an unencrypted tar backup (default is encrypted .obscure format)`,
+  --direct: Create an unencrypted tar backup (default is encrypted .obscure format)
+  --all: Upload to all enabled cloud providers`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		// Get session info
@@ -208,6 +209,7 @@ var backupCmd = &cobra.Command{
 
 		// Check if direct backup is requested
 		isDirect, _ := cmd.Flags().GetBool("direct")
+		isAll, _ := cmd.Flags().GetBool("all")
 
 		username, err := cfg.GetSessionUsername()
 		if err != nil {
@@ -229,12 +231,6 @@ var backupCmd = &cobra.Command{
 		providers, err := cfg.LoadUserProviders()
 		if err != nil {
 			fmt.Printf("❌ Failed to load provider configuration: %v\n", err)
-			return
-		}
-
-		config, ok := providers.Providers[providerKey]
-		if !ok || !config.Enabled {
-			fmt.Printf("❌ Provider %s is not configured or disabled\n", strings.ToUpper(providerKey))
 			return
 		}
 
@@ -345,310 +341,365 @@ var backupCmd = &cobra.Command{
 			extension = "obscure"
 		}
 
-		// Upload to cloud storage
 		filename := fmt.Sprintf("%s_%s.%s", version, tag, extension)
 		key := fmt.Sprintf("backups/%s/%s/%s", username, tag, filename)
 
-		// Get bucket name from provider config
-		bucket := config.Bucket
+		// Helper: upload without spinner
+		uploadFnNoSpinner := func(ctx context.Context, reader io.Reader, size int64, uploadFn func(io.Reader) error) error {
+			return uploadFn(reader)
+		}
 
-		switch providerKey {
-		case "s3":
-			// Initialize S3 client
-			ctx := context.Background()
-			awsCfg, err := strg.NewAWSClient(ctx, "s3")
-			if err != nil {
-				fmt.Printf("❌ Failed to initialize AWS client: %v\n", err)
-				return
-			}
-
-			client := s3.NewFromConfig(*awsCfg)
-
-			// Check if object exists
-			_, err = client.HeadObject(ctx, &s3.HeadObjectInput{
-				Bucket: aws.String(bucket),
-				Key:    aws.String(key),
-			})
-			if err == nil {
-				fmt.Println("❌ A backup with this name already exists")
-				return
-			}
-
-			// Upload to S3 with spinner
-			err = uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
-				_, err := client.PutObject(ctx, &s3.PutObjectInput{
+		uploadToProvider := func(providerKey string, config *cfg.CloudProviderConfig, suppressSpinner bool) error {
+			bucket := config.Bucket
+			switch providerKey {
+			case "s3":
+				ctx := context.Background()
+				awsCfg, err := strg.NewAWSClient(ctx, "s3")
+				if err != nil {
+					return fmt.Errorf("failed to initialize AWS client: %v", err)
+				}
+				client := s3.NewFromConfig(*awsCfg)
+				_, err = client.HeadObject(ctx, &s3.HeadObjectInput{
 					Bucket: aws.String(bucket),
 					Key:    aws.String(key),
-					Body:   reader,
-					Metadata: map[string]string{
+				})
+				if err == nil {
+					return fmt.Errorf("a backup with this name already exists")
+				}
+				if suppressSpinner {
+					return uploadFnNoSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+						_, err := client.PutObject(ctx, &s3.PutObjectInput{
+							Bucket: aws.String(bucket),
+							Key:    aws.String(key),
+							Body:   reader,
+							Metadata: map[string]string{
+								"username":  username,
+								"tag":       tag,
+								"version":   version,
+								"is_direct": fmt.Sprintf("%v", isDirect),
+							},
+						})
+						return err
+					})
+				}
+				return uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+					_, err := client.PutObject(ctx, &s3.PutObjectInput{
+						Bucket: aws.String(bucket),
+						Key:    aws.String(key),
+						Body:   reader,
+						Metadata: map[string]string{
+							"username":  username,
+							"tag":       tag,
+							"version":   version,
+							"is_direct": fmt.Sprintf("%v", isDirect),
+						},
+					})
+					return err
+				})
+			case "gcs":
+				ctx := context.Background()
+				client, err := strg.NewGCSClient(ctx, "gcs")
+				if err != nil {
+					return fmt.Errorf("failed to initialize GCS client: %v", err)
+				}
+				defer client.Close()
+				_, err = client.Bucket(bucket).Object(key).Attrs(ctx)
+				if err == nil {
+					return fmt.Errorf("a backup with this name already exists")
+				}
+				if suppressSpinner {
+					return uploadFnNoSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+						writer := client.Bucket(bucket).Object(key).NewWriter(ctx)
+						writer.Metadata = map[string]string{
+							"username":  username,
+							"tag":       tag,
+							"version":   version,
+							"is_direct": fmt.Sprintf("%v", isDirect),
+						}
+						if _, err := io.Copy(writer, reader); err != nil {
+							return err
+						}
+						return writer.Close()
+					})
+				}
+				return uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+					writer := client.Bucket(bucket).Object(key).NewWriter(ctx)
+					writer.Metadata = map[string]string{
 						"username":  username,
 						"tag":       tag,
 						"version":   version,
 						"is_direct": fmt.Sprintf("%v", isDirect),
-					},
+					}
+					if _, err := io.Copy(writer, reader); err != nil {
+						return err
+					}
+					return writer.Close()
 				})
-				return err
-			})
-			if err != nil {
-				fmt.Printf("\n❌ Failed to upload to S3: %v\n", err)
-				return
-			}
-
-		case "gcs":
-			// Initialize GCS client
-			ctx := context.Background()
-			client, err := strg.NewGCSClient(ctx, "gcs")
-			if err != nil {
-				fmt.Printf("❌ Failed to initialize GCS client: %v\n", err)
-				return
-			}
-			defer client.Close()
-
-			// Check if object exists
-			_, err = client.Bucket(bucket).Object(key).Attrs(ctx)
-			if err == nil {
-				fmt.Println("❌ A backup with this name already exists")
-				return
-			}
-
-			// Upload to GCS with spinner
-			err = uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
-				writer := client.Bucket(bucket).Object(key).NewWriter(ctx)
-				writer.Metadata = map[string]string{
-					"username":  username,
-					"tag":       tag,
-					"version":   version,
-					"is_direct": fmt.Sprintf("%v", isDirect),
+			case "b2":
+				ctx := context.Background()
+				b2Client, err := strg.NewB2Client(ctx, "b2")
+				if err != nil {
+					return fmt.Errorf("failed to initialize B2 client: %v", err)
 				}
-				if _, err := io.Copy(writer, reader); err != nil {
+				exists, err := b2Client.FileExists(ctx, key)
+				if err != nil {
+					return fmt.Errorf("failed to check if backup exists: %v", err)
+				}
+				if exists {
+					return fmt.Errorf("a backup with this name already exists")
+				}
+				if suppressSpinner {
+					return uploadFnNoSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+						return b2Client.UploadFile(ctx, key, reader, map[string]string{
+							"username":  username,
+							"tag":       tag,
+							"version":   version,
+							"is_direct": fmt.Sprintf("%v", isDirect),
+						})
+					})
+				}
+				return uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+					return b2Client.UploadFile(ctx, key, reader, map[string]string{
+						"username":  username,
+						"tag":       tag,
+						"version":   version,
+						"is_direct": fmt.Sprintf("%v", isDirect),
+					})
+				})
+			case "idrive":
+				ctx := context.Background()
+				idriveClient, err := strg.NewIDriveClient(ctx, "idrive")
+				if err != nil {
+					return fmt.Errorf("failed to initialize IDrive E2 client: %v", err)
+				}
+				exists, err := idriveClient.FileExists(ctx, key)
+				if err != nil {
+					return fmt.Errorf("failed to check if backup exists: %v", err)
+				}
+				if exists {
+					return fmt.Errorf("a backup with this name already exists")
+				}
+				if suppressSpinner {
+					return uploadFnNoSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+						return idriveClient.UploadFile(ctx, key, reader, map[string]string{
+							"username":  username,
+							"tag":       tag,
+							"version":   version,
+							"is_direct": fmt.Sprintf("%v", isDirect),
+						})
+					})
+				}
+				return uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+					return idriveClient.UploadFile(ctx, key, reader, map[string]string{
+						"username":  username,
+						"tag":       tag,
+						"version":   version,
+						"is_direct": fmt.Sprintf("%v", isDirect),
+					})
+				})
+			case "s3-compatible":
+				ctx := context.Background()
+				s3CompatibleClient, err := strg.NewS3CompatibleClient(ctx, "s3-compatible")
+				if err != nil {
+					return fmt.Errorf("failed to initialize S3-compatible client: %v", err)
+				}
+				exists, err := s3CompatibleClient.FileExists(ctx, key)
+				if err != nil {
+					return fmt.Errorf("failed to check if backup exists: %v", err)
+				}
+				if exists {
+					return fmt.Errorf("a backup with this name already exists")
+				}
+				if suppressSpinner {
+					return uploadFnNoSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+						return s3CompatibleClient.UploadFile(ctx, key, reader, map[string]string{
+							"username":  username,
+							"tag":       tag,
+							"version":   version,
+							"is_direct": fmt.Sprintf("%v", isDirect),
+						})
+					})
+				}
+				return uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+					return s3CompatibleClient.UploadFile(ctx, key, reader, map[string]string{
+						"username":  username,
+						"tag":       tag,
+						"version":   version,
+						"is_direct": fmt.Sprintf("%v", isDirect),
+					})
+				})
+			case "storj":
+				ctx := context.Background()
+				storjClient, err := strg.NewStorjClient(ctx, "storj")
+				if err != nil {
+					return fmt.Errorf("failed to initialize Storj client: %v", err)
+				}
+				exists, err := storjClient.FileExists(ctx, key)
+				if err != nil {
+					return fmt.Errorf("failed to check if backup exists: %v", err)
+				}
+				if exists {
+					return fmt.Errorf("a backup with this name already exists")
+				}
+				if suppressSpinner {
+					return uploadFnNoSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+						return storjClient.UploadFile(ctx, key, reader, map[string]string{
+							"username":  username,
+							"tag":       tag,
+							"version":   version,
+							"is_direct": fmt.Sprintf("%v", isDirect),
+						})
+					})
+				}
+				return uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
+					return storjClient.UploadFile(ctx, key, reader, map[string]string{
+						"username":  username,
+						"tag":       tag,
+						"version":   version,
+						"is_direct": fmt.Sprintf("%v", isDirect),
+					})
+				})
+			case "filebase-ipfs":
+				ctx := context.Background()
+				s3CompatibleClient, err := strg.NewS3CompatibleClient(ctx, "filebase-ipfs")
+				if err != nil {
+					return fmt.Errorf("failed to initialize Filebase+IPFS client: %v", err)
+				}
+				exists, err := s3CompatibleClient.FileExists(ctx, key)
+				if err != nil {
+					return fmt.Errorf("failed to check if backup exists: %v", err)
+				}
+				if exists {
+					return fmt.Errorf("a backup with this name already exists")
+				}
+				uploadFn := func(reader io.Reader) error {
+					err := s3CompatibleClient.UploadFile(ctx, key, reader, map[string]string{
+						"username":  username,
+						"tag":       tag,
+						"version":   version,
+						"is_direct": fmt.Sprintf("%v", isDirect),
+					})
+					if err != nil && strings.Contains(strings.ToLower(err.Error()), "access denied") {
+						fmt.Print("\r\033[K")
+						fmt.Println("⚠️  Go SDK upload failed to IPFS - access denied. Trying AWS CLI fallback...")
+						// Save the file to a temp location for CLI upload
+						tmpPath := "obscure_tmp_upload_file"
+						f, ferr := os.Create(tmpPath)
+						if ferr != nil {
+							return fmt.Errorf("failed to create temp file for AWS CLI upload: %v", ferr)
+						}
+						// Prepare reader for AWS CLI upload
+						var readerForCLI io.Reader = reader
+						if seeker, ok := reader.(io.Seeker); ok {
+							seeker.Seek(0, io.SeekStart)
+						} else if buf, ok := reader.(*bytes.Buffer); ok {
+							readerForCLI = bytes.NewReader(buf.Bytes())
+						}
+						_, ferr = io.Copy(f, readerForCLI)
+						f.Close()
+						if ferr != nil {
+							os.Remove(tmpPath)
+							return fmt.Errorf("failed to write temp file for AWS CLI upload: %v", ferr)
+						}
+						providerConfig, _ := cfg.GetProviderConfig("filebase-ipfs")
+						err = uploadWithAWSCLI(tmpPath, providerConfig.Bucket, key, providerConfig.Region, providerConfig.FilebaseEndpoint, providerConfig.AccessKeyID, providerConfig.SecretAccessKey)
+						os.Remove(tmpPath)
+						if err != nil {
+							return fmt.Errorf("AWS CLI upload failed: %v", err)
+						}
+						fmt.Println("✅ Backup uploaded using AWS CLI fallback.")
+						return nil
+					}
 					return err
 				}
-				return writer.Close()
-			})
-			if err != nil {
-				fmt.Printf("\n❌ Failed to upload to GCS: %v\n", err)
-				return
-			}
-
-		case "b2":
-			// Initialize B2 client using official SDK
-			ctx := context.Background()
-			b2Client, err := strg.NewB2Client(ctx, "b2")
-			if err != nil {
-				fmt.Printf("❌ Failed to initialize B2 client: %v\n", err)
-				return
-			}
-
-			// Check if object exists
-			exists, err := b2Client.FileExists(ctx, key)
-			if err != nil {
-				fmt.Printf("❌ Failed to check if backup exists: %v\n", err)
-				return
-			}
-			if exists {
-				fmt.Println("❌ A backup with this name already exists")
-				return
-			}
-
-			// Upload to B2 with spinner using official SDK
-			err = uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
-				metadata := map[string]string{
-					"username":  username,
-					"tag":       tag,
-					"version":   version,
-					"is_direct": fmt.Sprintf("%v", isDirect),
+				if suppressSpinner {
+					return uploadFnNoSpinner(ctx, uploadReader, uploadSize, uploadFn)
 				}
-
-				return b2Client.UploadFile(ctx, key, reader, metadata)
-			})
-			if err != nil {
-				fmt.Printf("\n❌ Failed to upload to B2: %v\n", err)
-				return
+				return uploadWithSpinner(ctx, uploadReader, uploadSize, uploadFn)
+			default:
+				return fmt.Errorf("unsupported provider: %s", providerKey)
 			}
+		}
 
-		case "idrive":
-			// Initialize IDrive E2 client
-			ctx := context.Background()
-			idriveClient, err := strg.NewIDriveClient(ctx, "idrive")
-			if err != nil {
-				fmt.Printf("❌ Failed to initialize IDrive E2 client: %v\n", err)
-				return
-			}
+		supportedProviders := map[string]bool{
+			"s3":            true,
+			"gcs":           true,
+			"b2":            true,
+			"idrive":        true,
+			"s3-compatible": true,
+			"storj":         true,
+			"filebase-ipfs": true,
+		}
 
-			// Check if object exists
-			exists, err := idriveClient.FileExists(ctx, key)
-			if err != nil {
-				fmt.Printf("❌ Failed to check if backup exists: %v\n", err)
-				return
-			}
-			if exists {
-				fmt.Println("❌ A backup with this name already exists")
-				return
-			}
-
-			// Upload to IDrive E2 with spinner
-			err = uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
-				metadata := map[string]string{
-					"username":  username,
-					"tag":       tag,
-					"version":   version,
-					"is_direct": fmt.Sprintf("%v", isDirect),
+		if isAll {
+			results := make(map[string]error)
+			var providerList []string
+			var configList []*cfg.CloudProviderConfig
+			for key, config := range providers.Providers {
+				if !supportedProviders[key] || !config.Enabled {
+					continue
 				}
-
-				return idriveClient.UploadFile(ctx, key, reader, metadata)
-			})
-			if err != nil {
-				fmt.Printf("\n❌ Failed to upload to IDrive E2: %v\n", err)
-				return
-			}
-
-		case "s3-compatible":
-			// Initialize S3-compatible client
-			ctx := context.Background()
-			s3CompatibleClient, err := strg.NewS3CompatibleClient(ctx, "s3-compatible")
-			if err != nil {
-				fmt.Printf("❌ Failed to initialize S3-compatible client: %v\n", err)
-				return
-			}
-
-			// Check if object exists
-			exists, err := s3CompatibleClient.FileExists(ctx, key)
-			if err != nil {
-				fmt.Printf("❌ Failed to check if backup exists: %v\n", err)
-				return
-			}
-			if exists {
-				fmt.Println("❌ A backup with this name already exists")
-				return
-			}
-
-			// Upload to S3-compatible with spinner
-			err = uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
-				metadata := map[string]string{
-					"username":  username,
-					"tag":       tag,
-					"version":   version,
-					"is_direct": fmt.Sprintf("%v", isDirect),
+				isComplete, _ := cfg.IsProviderConfigComplete(config)
+				if !isComplete {
+					continue
 				}
-
-				return s3CompatibleClient.UploadFile(ctx, key, reader, metadata)
-			})
-			if err != nil {
-				fmt.Printf("\n❌ Failed to upload to S3-compatible: %v\n", err)
+				providerList = append(providerList, key)
+				configList = append(configList, config)
+			}
+			if len(providerList) == 0 {
+				fmt.Println("❌ No enabled and fully configured providers found.")
 				return
 			}
-
-		case "storj":
-			// Initialize Storj client
-			ctx := context.Background()
-			storjClient, err := strg.NewStorjClient(ctx, "storj")
-			if err != nil {
-				fmt.Printf("❌ Failed to initialize Storj client: %v\n", err)
-				return
-			}
-
-			// Check if object exists
-			exists, err := storjClient.FileExists(ctx, key)
-			if err != nil {
-				fmt.Printf("❌ Failed to check if backup exists: %v\n", err)
-				return
-			}
-			if exists {
-				fmt.Println("❌ A backup with this name already exists")
-				return
-			}
-
-			// Upload to Storj with spinner
-			err = uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
-				metadata := map[string]string{
-					"username":  username,
-					"tag":       tag,
-					"version":   version,
-					"is_direct": fmt.Sprintf("%v", isDirect),
+			// Single spinner for all uploads
+			var wg sync.WaitGroup
+			done := make(chan struct{})
+			wg.Add(1)
+			go func() {
+				spinnerRunes := []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}
+				defer wg.Done()
+				for {
+					select {
+					case <-done:
+						return
+					default:
+						for _, r := range spinnerRunes {
+							fmt.Printf("\r☁️ Uploading to all enabled cloud providers... %s", string(r))
+							time.Sleep(100 * time.Millisecond)
+						}
+					}
 				}
-
-				return storjClient.UploadFile(ctx, key, reader, metadata)
-			})
-			if err != nil {
-				fmt.Printf("\n❌ Failed to upload to Storj: %v\n", err)
-				return
+			}()
+			// Perform uploads (sequentially)
+			for i, key := range providerList {
+				results[key] = uploadToProvider(key, configList[i], true)
 			}
-
-		case "filebase-ipfs":
-			ctx := context.Background()
-			s3CompatibleClient, err := strg.NewS3CompatibleClient(ctx, "filebase-ipfs")
-			if err != nil {
-				fmt.Printf("❌ Failed to initialize Filebase+IPFS client: %v\n", err)
-				return
-			}
-
-			providerConfig, _ := cfg.GetProviderConfig("filebase-ipfs")
-
-			// Check if object exists
-			exists, err := s3CompatibleClient.FileExists(ctx, key)
-			if err != nil {
-				fmt.Printf("❌ Failed to check if backup exists: %v\n", err)
-				return
-			}
-			if exists {
-				fmt.Println("❌ A backup with this name already exists")
-				return
-			}
-
-			// Try Go SDK upload first
-			err = uploadWithSpinner(ctx, uploadReader, uploadSize, func(reader io.Reader) error {
-				metadata := map[string]string{
-					"username":  username,
-					"tag":       tag,
-					"version":   version,
-					"is_direct": fmt.Sprintf("%v", isDirect),
+			close(done)
+			wg.Wait()
+			fmt.Print("\r\033[K") // Clear spinner line
+			fmt.Println("\n📊 Upload results:")
+			for key, err := range results {
+				if err == nil {
+					fmt.Printf("✅ %s: Success\n", strings.ToUpper(key))
+				} else {
+					fmt.Printf("❌ %s: %v\n", strings.ToUpper(key), err)
 				}
-				return s3CompatibleClient.UploadFile(ctx, key, reader, metadata)
-			})
-			if err != nil && strings.Contains(err.Error(), "access denied") {
-				fmt.Println("⚠️  Go SDK upload failed with access denied. Trying AWS CLI fallback...")
-				// Save the file to a temp location for CLI upload
-				tmpPath := "obscure_tmp_upload_file"
-				f, ferr := os.Create(tmpPath)
-				if ferr != nil {
-					fmt.Printf("❌ Failed to create temp file for AWS CLI upload: %v\n", ferr)
-					return
-				}
-				// Prepare reader for AWS CLI upload
-				var readerForCLI io.Reader = uploadReader
-				if seeker, ok := uploadReader.(io.Seeker); ok {
-					seeker.Seek(0, io.SeekStart)
-				} else if buf, ok := uploadReader.(*bytes.Buffer); ok {
-					readerForCLI = bytes.NewReader(buf.Bytes())
-				}
-				_, ferr = io.Copy(f, readerForCLI)
-				f.Close()
-				if ferr != nil {
-					fmt.Printf("❌ Failed to write temp file for AWS CLI upload: %v\n", ferr)
-					os.Remove(tmpPath)
-					return
-				}
-				err = uploadWithSpinner(ctx, nil, uploadSize, func(_ io.Reader) error {
-					return uploadWithAWSCLI(tmpPath, providerConfig.Bucket, key, providerConfig.Region, providerConfig.FilebaseEndpoint, providerConfig.AccessKeyID, providerConfig.SecretAccessKey)
-				})
-				os.Remove(tmpPath)
-				if err != nil {
-					fmt.Printf("❌ AWS CLI upload failed: %v\n", err)
-					return
-				}
-				fmt.Println("✅ Backup uploaded using AWS CLI fallback.")
-				return
 			}
-			if err != nil {
-				fmt.Printf("\n❌ Failed to upload to Filebase+IPFS: %v\n", err)
-				return
-			}
-
-		default:
-			fmt.Printf("❌ Unsupported provider: %s\n", providerKey)
+			elapsed := time.Since(start)
+			fmt.Printf("\n✅ Backup completed in %s\n", elapsed.Round(time.Millisecond))
+			fmt.Printf("📊 File size: %s\n", FormatBytes(uploadSize))
 			return
 		}
 
+		// Default: upload to single provider
+		config, ok := providers.Providers[providerKey]
+		if !ok || !config.Enabled {
+			fmt.Printf("❌ Provider %s is not configured or disabled\n", strings.ToUpper(providerKey))
+			return
+		}
+		if err := uploadToProvider(providerKey, config, false); err != nil {
+			fmt.Printf("❌ Failed to upload: %v\n", err)
+			return
+		}
 		elapsed := time.Since(start)
 		fmt.Printf("✅ Backup completed in %s\n", elapsed.Round(time.Millisecond))
 		fmt.Printf("📊 File size: %s\n", FormatBytes(uploadSize))
@@ -661,4 +712,5 @@ func init() {
 	backupCmd.Flags().StringP("tag", "t", "", "Tag for the backup (e.g., 'unit' or 'prod')")
 	backupCmd.Flags().StringP("version", "v", "", "Version for the backup (e.g., '2.1' or '1.0')")
 	backupCmd.Flags().BoolP("direct", "d", false, "Create an unencrypted tar backup (default is encrypted .obscure format)")
+	backupCmd.Flags().BoolP("all", "a", false, "Upload to all enabled cloud providers")
 }
