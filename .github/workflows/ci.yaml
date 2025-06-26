@@ -17,11 +17,6 @@ jobs:
         env:
           SERVICES: s3
           DEBUG: 1
-      fake-gcs-server:
-        image: fsouza/fake-gcs-server:latest
-        ports:
-          - 4443:4443
-        command: ["-scheme", "http", "-public-host", "localhost:4443"]
 
     steps:
     - name: Checkout code
@@ -69,18 +64,22 @@ jobs:
       run: |
         until aws --endpoint-url=http://localhost:4566 s3 ls; do sleep 2; done
 
+    - name: Start fake-gcs-server
+      run: |
+        docker run -d -p 4443:4443 fsouza/fake-gcs-server:latest -scheme http -public-host localhost:4443
+
     - name: Wait for fake-gcs-server
       run: |
         until curl -s http://localhost:4443/storage/v1/b; do sleep 2; done
 
     - name: Make integration test scripts executable
-      run: chmod +x integration_test.sh integration_test_gcs.sh integration_test_filebase.sh
+      run: chmod +x integration/integration_test.sh integration_test_gcs.sh integration_test_filebase.sh
 
     - name: Run AWS S3 integration test
-      run: ./integration_test.sh
+      run: ./integration/integration_test.sh
 
     - name: Run GCS integration test
-      run: ./integration_test_gcs.sh
+      run: ./integration/integration_test_gcs.sh
 
     - name: Run S3-compatible (Filebase) integration test
-      run: ./integration_test_filebase.sh
+      run: ./integration/integration_test_filebase.sh
