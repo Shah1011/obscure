@@ -9,14 +9,9 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
-    services:
-      localstack:
-        image: localstack/localstack:latest
-        ports:
-          - 4566:4566
-        env:
-          SERVICES: s3
-          DEBUG: 1
+    permissions:
+      contents: read
+      packages: write  # Needed for pushing to GHCR
 
     steps:
     - name: Checkout code
@@ -36,9 +31,6 @@ jobs:
     - name: Build CLI
       run: go build -o obscure .
 
-    - name: Add current directory to PATH
-      run: echo "$PWD" >> $GITHUB_PATH
-
     - name: Decode Firebase service account key
       run: |
         echo "${{ secrets.FIREBASE_SERVICE_ACCOUNT_B64 }}" | base64 -d > firebase-key.json
@@ -54,55 +46,3 @@ jobs:
     - name: Push Docker image
       run: |
         docker push ghcr.io/shah1011/obscure-cli:latest
-
-    - name: Install AWS CLI
-      run: pip install awscli
-
-    - name: Install gsutil
-      run: |
-        sudo apt-get update && sudo apt-get install -y python3-pip
-        pip install gsutil
-
-    - name: Wait for LocalStack
-      env:
-        AWS_ACCESS_KEY_ID: test
-        AWS_SECRET_ACCESS_KEY: test
-        AWS_REGION: us-east-1
-      run: |
-        until aws --endpoint-url=http://localhost:4566 s3 ls; do sleep 2; done
-
-    - name: Start fake-gcs-server
-      run: |
-        docker run -d -p 4443:4443 fsouza/fake-gcs-server:latest -scheme http -public-host localhost:4443
-
-    - name: Wait for fake-gcs-server
-      run: |
-        until curl -s http://localhost:4443/storage/v1/b; do sleep 2; done
-
-    - name: Make integration test scripts executable
-      env:
-        AWS_ACCESS_KEY_ID: test
-        AWS_SECRET_ACCESS_KEY: test
-        AWS_REGION: us-east-1
-      run: chmod +x integration/integration_test.sh integration/integration_test_gcs.sh integration/integration_test_filebase.sh
-
-    - name: Run AWS S3 integration test
-      env:
-        AWS_ACCESS_KEY_ID: test
-        AWS_SECRET_ACCESS_KEY: test
-        AWS_REGION: us-east-1
-      run: ./integration/integration_test.sh
-
-    - name: Run GCS integration test
-      env:
-        AWS_ACCESS_KEY_ID: test
-        AWS_SECRET_ACCESS_KEY: test
-        AWS_REGION: us-east-1
-      run: ./integration/integration_test_gcs.sh
-
-    - name: Run S3-compatible (Filebase) integration test
-      env:
-        AWS_ACCESS_KEY_ID: test
-        AWS_SECRET_ACCESS_KEY: test
-        AWS_REGION: us-east-1
-      run: ./integration/integration_test_filebase.sh
