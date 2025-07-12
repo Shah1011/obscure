@@ -205,7 +205,7 @@ func scheduleBackupJob() {
 var schedulerCmd = &cobra.Command{
 	Use:   "scheduler",
 	Short: "Schedule automated backups at specified intervals.",
-	Long:  `Automate backups with a scheduler.\n\nExamples:\n  Daily at 17:00: obscure scheduler --time=\"17:00\" --interval=daily ...\n  Every 5 minutes: obscure scheduler --time=\"5\" --interval=minute ...\n  Custom cron: obscure scheduler --time=\"*/10 * * * *\" --interval=custom ...`,
+	Long:  `Automate backups with a scheduler.\n\n- The scheduler always uses the currently selected provider (set with 'obscure switch-provider') at the time of each backup.\n- To change the provider for future scheduled backups, run 'obscure switch-provider <provider>' before the next backup runs.\n\nExamples:\n  Daily at 17:00: obscure scheduler --time=\"17:00\" --interval=daily ...\n  Every 5 minutes: obscure scheduler --time=\"5\" --interval=minute ...\n  Custom cron: obscure scheduler --time=\"*/10 * * * *\" --interval=custom ...`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if schedTime == "" || schedInterval == "" || schedDir == "" || schedTag == "" {
 			fmt.Println("❌ --time, --interval, --dir, and --tag are required.")

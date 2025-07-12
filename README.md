@@ -93,6 +93,35 @@ A secure, encrypted backup tool that supports multiple cloud storage providers. 
 ### Utility
 - `obscure debug` - Show debug information about your session
 
+## Scheduler Command
+
+The `scheduler` command allows you to automate backups at specified intervals.
+
+**Provider Selection:**
+- The scheduler always uses the currently selected provider (set with `obscure switch-provider`) at the time of each backup.
+- To change the provider for future scheduled backups, run `obscure switch-provider <provider>` before the next backup runs.
+
+**Usage Examples:**
+
+- Daily at 17:00:
+  ```sh
+  ./obscure scheduler --time="17:00" --interval=daily --dir="/path/to/dir" --tag="mybackup"
+  ```
+- Every 5 minutes:
+  ```sh
+  ./obscure scheduler --time="5" --interval=minute --dir="/path/to/dir" --tag="mybackup"
+  ```
+- Custom cron (every 10 minutes):
+  ```sh
+  ./obscure scheduler --time="*/10 * * * *" --interval=custom --dir="/path/to/dir" --tag="mybackup"
+  ```
+
+**Notes:**
+- The scheduler will keep only the latest 5 backups by default (use `--retain` to change this).
+- Versioning is automatic unless overridden with `--version`.
+- The process must be running for scheduled backups to occur.
+- You can run the scheduler in the background using OS tools (see documentation for details).
+
 ## Supported Cloud Providers
 
 - **Amazon S3**: Standard S3 buckets with access keys
