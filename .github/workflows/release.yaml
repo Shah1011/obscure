@@ -32,7 +32,14 @@ jobs:
 
       - name: Update package.json version
         run: |
-          npm version ${{ steps.version.outputs.VERSION }} --no-git-tag-version
+          # Update version using Node.js to avoid npm version conflicts
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '${{ steps.version.outputs.VERSION }}';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+            console.log('Updated package.json version to:', pkg.version);
+          "
 
       - name: Build binaries
         run: |
@@ -53,6 +60,13 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify package before publish
+        run: |
+          echo "Package info:"
+          npm pack --dry-run
+          echo "Current version in package.json:"
+          node -e "console.log(require('./package.json').version)"
 
       - name: Publish to npm
         run: npm publish
