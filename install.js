@@ -93,13 +93,20 @@ async function install() {
     
     // Create cross-platform wrapper script
     const wrapperPath = path.join(binDir, 'obscure');
-    const wrapperContent = platform === 'windows' 
-      ? `@echo off\n"${binaryPath}" %*`
-      : `#!/bin/sh\nexec "${binaryPath}" "$@"`;
     
-    fs.writeFileSync(wrapperPath, wrapperContent);
-    
-    if (platform !== 'windows') {
+    if (platform === 'windows') {
+      // On Windows, create a .cmd file that npm can execute
+      const cmdPath = wrapperPath + '.cmd';
+      const cmdContent = `@echo off\n"${binaryPath}" %*`;
+      fs.writeFileSync(cmdPath, cmdContent);
+      
+      // Also create the wrapper without extension for the bin field
+      const wrapperContent = `@echo off\n"${binaryPath}" %*`;
+      fs.writeFileSync(wrapperPath, wrapperContent);
+    } else {
+      // Unix systems
+      const wrapperContent = `#!/bin/sh\nexec "${binaryPath}" "$@"`;
+      fs.writeFileSync(wrapperPath, wrapperContent);
       fs.chmodSync(wrapperPath, '755');
     }
     
