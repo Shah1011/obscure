@@ -1,0 +1,45 @@
+# Build artifacts
+obscure.exe
+obscure
+bin/
+
+# Development files
+.env
+.env.*
+*.log
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+*.test
+*.out
+
+# Go specific
+vendor/
+
+# Obscure specific
+.obscure/
+restored_*/
+service-account.json
+serviceAccountKey.json
+firebaseServiceAccountKey.json
+config.yaml
+token
+providers.json
+
+# Docker
+docker-compose.yml
+dockerfile
+
+# Packed npm files
+*.tgz

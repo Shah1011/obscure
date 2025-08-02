@@ -61,3 +61,11 @@ go.work
 restored_*/
 obscure-backend/
 firebaseServiceAccountKey.json
+obscure-gui/
+
+# npm
+node_modules/
+bin/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

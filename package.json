@@ -1,0 +1,52 @@
+{
+  "name": "obscure-backup",
+  "version": "1.0.0",
+  "description": "A secure, encrypted backup tool that supports multiple cloud storage providers",
+  "main": "index.js",
+  "bin": {
+    "obscure": "./bin/obscure"
+  },
+  "scripts": {
+    "postinstall": "node install.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "backup",
+    "encryption",
+    "cloud-storage",
+    "s3",
+    "gcs",
+    "security",
+    "cli",
+    "aws",
+    "google-cloud",
+    "backblaze",
+    "encrypted-backup",
+    "multi-cloud",
+    "aes-encryption",
+    "backup-tool",
+    "data-protection"
+  ],
+  "author": "Shah1011",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Shah1011/obscure.git"
+  },
+  "homepage": "https://github.com/Shah1011/obscure#readme",
+  "bugs": {
+    "url": "https://github.com/Shah1011/obscure/issues"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}

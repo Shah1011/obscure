@@ -16,12 +16,18 @@ A secure, encrypted backup tool that supports multiple cloud storage providers. 
 
 ## Installation
 
-### Option 1: Binary Download
+### Option 1: npm (Recommended)
+```bash
+npm install -g obscure-backup
+obscure --help
+```
+
+### Option 2: Binary Download
 1. Download the latest release from the [releases page](https://github.com/Shah1011/obscure/releases)
 2. Extract the binary to a location in your PATH
 3. Run `obscure signup` to create your account
 
-### Option 2: Docker (Recommended)
+### Option 3: Docker
 1. Clone this repository
 2. Set up your environment variables (see Environment Variables section)
 3. Use Docker Compose for easy execution:
