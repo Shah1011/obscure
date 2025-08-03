@@ -123,6 +123,58 @@ child.on('exit', (code) => {
       const cmdPath = wrapperPath + '.cmd';
       const cmdContent = `@echo off\nnode "%~dp0obscure" %*`;
       fs.writeFileSync(cmdPath, cmdContent);
+      
+      // Try to manually create NPM symlinks (workaround for NPM Windows issue)
+      try {
+        const npmPrefix = execSync('npm config get prefix', { encoding: 'utf8' }).trim();
+        const globalBinPath = path.join(npmPrefix, 'obscure');
+        const globalCmdPath = path.join(npmPrefix, 'obscure.cmd');
+        
+        // Create the global shell script (for Git Bash, WSL, etc.)
+        const globalShellScript = `#!/bin/sh
+basedir=$(dirname "$(echo "$0" | sed -e 's,\\\\\\\\,/,g')")
+case \`uname\` in
+    *CYGWIN*|*MINGW*|*MSYS*) basedir=\`cygpath -w "$basedir"\`;;
+esac
+
+if [ -x "$basedir/node" ]; then
+  "$basedir/node"  "$basedir/node_modules/obscure-backup/bin/obscure" "$@"
+  ret=$?
+else 
+  node  "$basedir/node_modules/obscure-backup/bin/obscure" "$@"
+  ret=$?
+fi
+exit $ret`;
+
+        // Create the global .cmd script (for Windows Command Prompt and PowerShell)
+        const globalCmdScript = `@ECHO off
+GOTO start
+:find_dp0
+SET dp0=%~dp0
+EXIT /b
+:start
+SETLOCAL
+CALL :find_dp0
+
+IF EXIST "%dp0%\\node.exe" (
+  SET "_prog=%dp0%\\node.exe"
+) ELSE (
+  SET "_prog=node"
+  SET PATHEXT=%PATHEXT:;.JS;=;%
+)
+
+"%_prog%"  "%dp0%\\node_modules\\obscure-backup\\bin\\obscure" %*
+ENDLOCAL
+EXIT /b %errorlevel%`;
+
+        fs.writeFileSync(globalBinPath, globalShellScript);
+        fs.writeFileSync(globalCmdPath, globalCmdScript);
+        
+        console.log('✅ Created global NPM symlinks automatically');
+      } catch (error) {
+        console.log('⚠️  Could not create global symlinks automatically:', error.message);
+        console.log('   This is a known NPM issue on Windows.');
+      }
     } else {
       // Unix systems
       const wrapperContent = `#!/bin/sh\nexec "${binaryPath}" "$@"`;
@@ -135,10 +187,26 @@ child.on('exit', (code) => {
     
     // Test if the global command works
     try {
-      require('child_process').execSync('obscure --version', { stdio: 'ignore' });
+      require('child_process').execSync('obscure --help', { stdio: 'ignore', timeout: 5000 });
       console.log('🎉 Global "obscure" command is ready!');
       console.log('Run "obscure --help" to get started.');
     } catch (error) {
+      // Check if we're on Windows and symlinks were created
+      if (platform === 'windows') {
+        try {
+          const npmPrefix = execSync('npm config get prefix', { encoding: 'utf8' }).trim();
+          const globalCmdPath = path.join(npmPrefix, 'obscure.cmd');
+          if (fs.existsSync(globalCmdPath)) {
+            console.log('🎉 Global "obscure" command should be ready!');
+            console.log('Run "obscure --help" to get started.');
+            console.log('(If command not found, try restarting your terminal)');
+            return;
+          }
+        } catch (e) {
+          // Fall through to workarounds
+        }
+      }
+      
       console.log('⚠️  Global "obscure" command not found. This is a known NPM issue on Windows.');
       console.log('');
       console.log('🔧 Workarounds:');
