@@ -22,6 +22,21 @@ npm install -g obscure-backup
 obscure --help
 ```
 
+**Note for Windows users:** If the `obscure` command is not found after installation, this is a known NPM issue on Windows. Use one of these workarounds:
+
+```bash
+# Option A: Use npx (recommended)
+npx obscure-backup --help
+npx obscure-backup signup
+
+# Option B: Try npm link
+npm link obscure-backup
+obscure --help
+
+# Option C: Use the full path (shown in install output)
+node "path/to/obscure/bin/obscure" --help
+```
+
 ### Option 2: Binary Download
 1. Download the latest release from the [releases page](https://github.com/Shah1011/obscure/releases)
 2. Extract the binary to a location in your PATH

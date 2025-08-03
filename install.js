@@ -121,7 +121,7 @@ child.on('exit', (code) => {
       
       // Also create a .cmd file for direct execution
       const cmdPath = wrapperPath + '.cmd';
-      const cmdContent = `@echo off\n"${binaryPath}" %*`;
+      const cmdContent = `@echo off\nnode "%~dp0obscure" %*`;
       fs.writeFileSync(cmdPath, cmdContent);
     } else {
       // Unix systems
@@ -131,7 +131,23 @@ child.on('exit', (code) => {
     }
     
     console.log('✅ Obscure installed successfully!');
-    console.log('Run "obscure --help" to get started.');
+    console.log('');
+    
+    // Test if the global command works
+    try {
+      require('child_process').execSync('obscure --version', { stdio: 'ignore' });
+      console.log('🎉 Global "obscure" command is ready!');
+      console.log('Run "obscure --help" to get started.');
+    } catch (error) {
+      console.log('⚠️  Global "obscure" command not found. This is a known NPM issue on Windows.');
+      console.log('');
+      console.log('🔧 Workarounds:');
+      console.log('   1. Try: npm link obscure-backup');
+      console.log('   2. Or run directly: npx obscure-backup');
+      console.log('   3. Or use full path: node "' + path.join(__dirname, 'bin', 'obscure') + '"');
+      console.log('');
+      console.log('📖 More info: https://github.com/Shah1011/obscure#installation');
+    }
     
   } catch (error) {
     console.error('❌ Installation failed:', error.message);
