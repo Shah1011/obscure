@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"io"
-	"strings"
 
 	"github.com/kurin/blazer/b2"
 	cfg "github.com/shah1011/obscure/internal/config"

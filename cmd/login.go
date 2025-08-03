@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	cfg "github.com/shah1011/obscure/internal/config"
 	"github.com/shah1011/obscure/internal/firebase"
