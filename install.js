@@ -95,14 +95,24 @@ async function install() {
     const wrapperPath = path.join(binDir, 'obscure');
     
     if (platform === 'windows') {
-      // On Windows, create a .cmd file that npm can execute
+      // Create a Node.js wrapper script that NPM can handle properly
+      const nodeWrapperContent = `#!/usr/bin/env node
+const { spawn } = require('child_process');
+const path = require('path');
+
+const binaryPath = path.join(__dirname, 'obscure.exe');
+const child = spawn(binaryPath, process.argv.slice(2), { stdio: 'inherit' });
+
+child.on('exit', (code) => {
+  process.exit(code);
+});
+`;
+      fs.writeFileSync(wrapperPath, nodeWrapperContent);
+      
+      // Also create a .cmd file for direct execution
       const cmdPath = wrapperPath + '.cmd';
       const cmdContent = `@echo off\n"${binaryPath}" %*`;
       fs.writeFileSync(cmdPath, cmdContent);
-      
-      // Also create the wrapper without extension for the bin field
-      const wrapperContent = `@echo off\n"${binaryPath}" %*`;
-      fs.writeFileSync(wrapperPath, wrapperContent);
     } else {
       // Unix systems
       const wrapperContent = `#!/bin/sh\nexec "${binaryPath}" "$@"`;
