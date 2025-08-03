@@ -147,10 +147,18 @@ func deleteFromB2(key string) {
 		return
 	}
 
+	// Debug: Show what key we're looking for
+	fmt.Printf("🔍 Looking for file: %s\n", key)
+
 	// Check if object exists first
 	exists, err := b2Client.FileExists(ctx, key)
 	if err != nil {
-		fmt.Println("❌ Failed to check file existence:", err)
+		// Handle specific B2 errors more gracefully
+		if strings.Contains(err.Error(), "416") || strings.Contains(err.Error(), "out of content") {
+			fmt.Printf("❌ File does not exist or is corrupted: %s\n", key)
+		} else {
+			fmt.Println("❌ Failed to check file existence:", err)
+		}
 		return
 	}
 	if !exists {

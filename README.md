@@ -137,6 +137,25 @@ The `scheduler` command allows you to automate backups at specified intervals.
 - **S3-compatible**: Generic support for any S3-compatible service (Wasabi, MinIO, etc.)
 - **Filebase + IPFS**: Decentralized storage via Filebase's S3-compatible API (requires AWS CLI for fallback uploads)
 
+### Google Cloud Storage (GCS) Provider
+For GCS, you need a service account JSON file. The app will automatically look for your service account file in multiple locations:
+
+**Service Account File Locations (in order of priority):**
+1. **Custom path** (if specified during setup)
+2. **`~/.obscure/gcs-service-account.json`** (recommended for NPM users)
+3. **`./gcs-service-account.json`** (current directory)
+4. **`GOOGLE_APPLICATION_CREDENTIALS`** environment variable
+
+**Setup:**
+```bash
+obscure provider add gcs
+# You'll be prompted for:
+# - Google Cloud Project ID
+# - Service account file path (optional - can be skipped)
+```
+
+**For NPM users:** Simply place your GCS service account JSON file at `~/.obscure/gcs-service-account.json` and skip the path prompt during setup.
+
 ### Filebase + IPFS Provider
 Filebase+IPFS allows you to store your backups on the IPFS decentralized network using Filebase's S3-compatible API.
 
@@ -199,6 +218,11 @@ docker run --rm \
 - Encryption keys are derived from your password using PBKDF2
 - Cloud provider credentials are stored locally only
 - No sensitive data is stored in the cloud
+
+### Important Security Notes
+- **Never commit** `.env`, service account files, or API keys to version control
+- Copy `.env.example` to `.env` and fill in your actual credentials
+- Use the CLI commands to configure cloud providers securely
 
 ## Environment Variables
 

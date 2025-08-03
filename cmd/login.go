@@ -29,9 +29,9 @@ var loginCmd = &cobra.Command{
 		}
 
 		// Step 3: Firebase authentication
-		apiKey := os.Getenv("FIREBASE_API_KEY")
+		apiKey := firebase.GetFirebaseApiKey()
 		if apiKey == "" {
-			fmt.Println("❌ FIREBASE_API_KEY environment variable is not set.")
+			fmt.Println("❌ Firebase API key not available. Please check configuration.")
 			return
 		}
 		idToken, err := firebase.FirebaseLogin(email, password, apiKey)

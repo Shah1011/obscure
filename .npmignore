@@ -30,7 +30,7 @@ vendor/
 # Obscure specific
 .obscure/
 restored_*/
-service-account.json
+gcs-service-account.json
 serviceAccountKey.json
 firebaseServiceAccountKey.json
 config.yaml

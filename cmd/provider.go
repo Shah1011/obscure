@@ -154,9 +154,7 @@ func isProviderConfigComplete(config *cfg.CloudProviderConfig) (bool, []string) 
 		if config.ProjectID == "" {
 			missing = append(missing, "project ID")
 		}
-		if config.ServiceAccount == "" {
-			missing = append(missing, "service account path")
-		}
+		// Service account path is now optional - will use fallback locations
 	case "b2":
 		if config.Bucket == "" {
 			missing = append(missing, "bucket name")
@@ -376,10 +374,20 @@ func configureGCSProvider(config *cfg.CloudProviderConfig) error {
 		return fmt.Errorf("invalid project ID: %v", err)
 	}
 
-	// Service Account Path
-	serviceAccountPath := readInput("Enter path to service account key file: ")
-	if err := validateServiceAccountPath(serviceAccountPath); err != nil {
-		return fmt.Errorf("invalid service account path: %v", err)
+	// Service Account Path (optional)
+	fmt.Println("\n📝 Service Account Configuration:")
+	fmt.Println("   You can either provide a path now, or place your service account file in:")
+	fmt.Println("   • ~/.obscure/gcs-service-account.json")
+	fmt.Println("   • ./gcs-service-account.json")
+	fmt.Println("   • Set GOOGLE_APPLICATION_CREDENTIALS environment variable")
+	
+	serviceAccountPath := readInput("Enter path to service account key file (or press Enter to skip): ")
+	
+	// Only validate if a path was provided
+	if serviceAccountPath != "" {
+		if err := validateServiceAccountPath(serviceAccountPath); err != nil {
+			return fmt.Errorf("invalid service account path: %v", err)
+		}
 	}
 
 	config.ProjectID = projectID

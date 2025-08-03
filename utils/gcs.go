@@ -112,7 +112,7 @@ func DownloadFromGCSStream(objectKey string) (io.ReadCloser, int64, error) {
 	ctx := context.Background()
 
 	// 🧠 Initialize GCS client (assumes ADC or service account key)
-	client, err := storage.NewClient(ctx, option.WithCredentialsFile("service-account.json"))
+	client, err := storage.NewClient(ctx, option.WithCredentialsFile("gcs-service-account.json"))
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to create GCS client: %w", err)
 	}

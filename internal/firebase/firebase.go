@@ -5,9 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"sync"
+	"time"
 
 	"cloud.google.com/go/firestore"
 	firebase "firebase.google.com/go/v4"
@@ -21,14 +24,98 @@ var (
 	once sync.Once
 )
 
+// FirebaseCredentials holds both service account and API key
+type FirebaseCredentials struct {
+	ServiceAccount   json.RawMessage `json:"serviceAccount"`
+	FirebaseApiKey   string          `json:"firebaseApiKey"`
+}
+
+// Global variable to cache Firebase API key
+var cachedFirebaseApiKey string
+
+// fetchFirebaseCredentialsFromVercel fetches both service account and API key from Vercel API
+func fetchFirebaseCredentialsFromVercel() (*FirebaseCredentials, error) {
+	endpoint := os.Getenv("VERCEL_ENDPOINT")
+	apiKey := os.Getenv("VERCEL_API_KEY")
+	
+	if endpoint == "" || apiKey == "" {
+		return nil, fmt.Errorf("VERCEL_ENDPOINT or VERCEL_API_KEY not set")
+	}
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	// Create request
+	req, err := http.NewRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Add API key header
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	// Make request
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch from Vercel API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("Vercel API returned status %d", resp.StatusCode)
+	}
+
+	// Read and parse response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	var credentials FirebaseCredentials
+	if err := json.Unmarshal(body, &credentials); err != nil {
+		return nil, fmt.Errorf("failed to parse credentials: %w", err)
+	}
+
+	// Cache the Firebase API key globally
+	cachedFirebaseApiKey = credentials.FirebaseApiKey
+
+	return &credentials, nil
+}
+
 func InitApp() *firebase.App {
 	once.Do(func() {
-		opt := option.WithCredentialsFile("serviceAccountKey.json")
+		var opt option.ClientOption
+		var err error
+
+		// Try to fetch credentials from Vercel API first
+		credentials, err := fetchFirebaseCredentialsFromVercel()
+		if err != nil {
+			log.Printf("Failed to fetch from Vercel API: %v", err)
+			log.Printf("Falling back to local serviceAccountKey.json file...")
+			
+			// Fallback to local file
+			if _, fileErr := os.Stat("serviceAccountKey.json"); fileErr == nil {
+				opt = option.WithCredentialsFile("serviceAccountKey.json")
+				// Also try to get Firebase API key from environment as fallback
+				if envApiKey := os.Getenv("FIREBASE_API_KEY"); envApiKey != "" {
+					cachedFirebaseApiKey = envApiKey
+				}
+			} else {
+				log.Fatalf("No Firebase credentials available. Vercel API failed and local file not found.")
+			}
+		} else {
+			// Use credentials from Vercel API
+			opt = option.WithCredentialsJSON(credentials.ServiceAccount)
+			log.Printf("Successfully fetched Firebase credentials from Vercel API")
+		}
+
 		config := &firebase.Config{
 			ProjectID: "obscure-a45f2",
 		}
 
-		var err error
 		app, err = firebase.NewApp(context.Background(), config, opt)
 		if err != nil {
 			log.Fatalf("Error initializing Firebase app: %v", err)
@@ -54,6 +141,17 @@ func SignUpUser(email, password string) (*auth.UserRecord, error) {
 		Password(password)
 
 	return client.CreateUser(context.Background(), params)
+}
+
+// GetFirebaseApiKey returns the Firebase API key (from Vercel API or environment)
+func GetFirebaseApiKey() string {
+	// If we have a cached API key from Vercel, use it
+	if cachedFirebaseApiKey != "" {
+		return cachedFirebaseApiKey
+	}
+	
+	// Fallback to environment variable
+	return os.Getenv("FIREBASE_API_KEY")
 }
 
 func FirebaseLogin(email, password, apiKey string) (string, error) {

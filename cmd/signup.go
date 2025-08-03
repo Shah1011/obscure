@@ -127,16 +127,25 @@ var signupCmd = &cobra.Command{
 				fmt.Println("❌ Invalid project ID")
 				return
 			}
-			serviceAccountPath, err := utils.PromptLine("Enter path to service account key file: ")
+			
+			fmt.Println("\n📝 Service Account Configuration:")
+			fmt.Println("   You can either provide a path now, or place your service account file in:")
+			fmt.Println("   • ~/.obscure/gcs-service-account.json")
+			fmt.Println("   • ./gcs-service-account.json")
+			fmt.Println("   • Set GOOGLE_APPLICATION_CREDENTIALS environment variable")
+			
+			serviceAccountPath, err := utils.PromptLine("Enter path to service account key file (or press Enter to skip): ")
 			if err != nil {
 				fmt.Println("❌ Invalid service account path")
 				return
 			}
 
-			// Verify service account file exists
-			if _, err := os.Stat(serviceAccountPath); os.IsNotExist(err) {
-				fmt.Println("❌ Service account file not found")
-				return
+			// Only verify if a path was provided
+			if serviceAccountPath != "" {
+				if _, err := os.Stat(serviceAccountPath); os.IsNotExist(err) {
+					fmt.Println("❌ Service account file not found")
+					return
+				}
 			}
 
 			config.ProjectID = projectID
@@ -356,7 +365,12 @@ var signupCmd = &cobra.Command{
 		}
 
 		// Step 10: Login to get session token
-		idToken, err := firebase.FirebaseLogin(email, password, os.Getenv("FIREBASE_API_KEY"))
+		apiKey := firebase.GetFirebaseApiKey()
+		if apiKey == "" {
+			fmt.Println("❌ Firebase API key not available. Please check configuration.")
+			return
+		}
+		idToken, err := firebase.FirebaseLogin(email, password, apiKey)
 		if err != nil {
 			fmt.Println("❌ Login failed after signup:", err)
 			return

@@ -787,6 +787,13 @@ func printBackups(files []string, metadata map[string]bool) {
 		return
 	}
 
+	// Debug: Show actual file paths
+	fmt.Println("🔍 Debug - Actual file paths found:")
+	for _, file := range files {
+		fmt.Printf("   %s\n", file)
+	}
+	fmt.Println()
+
 	grouped := make(map[string][]string)
 
 	for _, file := range files {

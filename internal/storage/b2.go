@@ -58,16 +58,21 @@ func (b *B2Client) UploadFile(ctx context.Context, key string, reader io.Reader,
 
 // FileExists checks if a file exists in B2
 func (b *B2Client) FileExists(ctx context.Context, key string) (bool, error) {
-	obj := b.bucket.Object(key)
-	_, err := obj.Attrs(ctx)
+	// Instead of using Attrs which can cause 416 errors, use ListFiles to check existence
+	// This is more reliable for B2
+	files, err := b.ListFiles(ctx, key)
 	if err != nil {
-		// Check for file not found error
-		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "does not exist") {
-			return false, nil
-		}
 		return false, err
 	}
-	return true, nil
+	
+	// Check if the exact key exists in the list
+	for _, file := range files {
+		if file == key {
+			return true, nil
+		}
+	}
+	
+	return false, nil
 }
 
 // ListFiles lists files in B2 with a prefix
