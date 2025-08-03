@@ -72,7 +72,6 @@ function downloadFile(url, dest) {
 async function install() {
   try {
     const { platform, arch } = getPlatform();
-    const url = getDownloadUrl(platform, arch);
     
     // Create bin directory
     const binDir = path.join(__dirname, 'bin');
@@ -80,11 +79,22 @@ async function install() {
       fs.mkdirSync(binDir, { recursive: true });
     }
     
-    // Download binary
+    // Check if pre-built binary exists (from GitHub Actions)
     const ext = platform === 'windows' ? '.exe' : '';
+    const preBuiltBinaryName = `obscure-${platform}-${arch}${ext}`;
+    const preBuiltBinaryPath = path.join(__dirname, preBuiltBinaryName);
     const binaryPath = path.join(binDir, `obscure${ext}`);
     
-    await downloadFile(url, binaryPath);
+    if (fs.existsSync(preBuiltBinaryPath)) {
+      // Use pre-built binary (from GitHub Actions publish)
+      console.log(`Using pre-built binary: ${preBuiltBinaryName}`);
+      fs.copyFileSync(preBuiltBinaryPath, binaryPath);
+    } else {
+      // Download binary (for local development)
+      const url = getDownloadUrl(platform, arch);
+      console.log(`Downloading ${url}...`);
+      await downloadFile(url, binaryPath);
+    }
     
     // Make executable on Unix systems
     if (platform !== 'windows') {

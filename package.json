@@ -1,6 +1,6 @@
 {
   "name": "obscure-backup",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "A secure, encrypted backup tool that supports multiple cloud storage providers",
   "main": "index.js",
   "bin": {
